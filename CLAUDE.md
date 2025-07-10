@@ -37,10 +37,11 @@ This is a Docker-based autoscaling solution for n8n workflow automation platform
 # 8. Configure Tailscale IP for PostgreSQL binding (optional)
 # 9. Configure n8n and webhook URLs
 # 10. Configure autoscaling parameters (optional)
-# 11. Detect container runtime (Docker/Podman)
-# 12. Create data directories with absolute paths
-# 13. Create database and test the setup
-# 14. Mark setup as completed
+# 11. Detect container runtime with security ranking (Docker/Podman, rootless/rootful)
+# 12. Display security warnings and migration guidance for rootful modes
+# 13. Create data directories with absolute paths
+# 14. Create database and test the setup
+# 15. Mark setup as completed
 
 # Run n8n-setup.sh again to:
 # - Configure systemd services
@@ -146,8 +147,16 @@ Critical environment variables in `.env`:
 4. **Queue Monitoring**: Check both `bull:jobs:wait` and `bull:jobs:waiting` (BullMQ v4+)
 5. **Scaling Cooldown**: Prevents thrashing with 3-minute default between actions
 6. **Tailscale Support**: PostgreSQL can bind to Tailscale IP for secure access
-7. **Rclone Cloud Storage Integration**: Optional mounting via override file
-8. **Data Organization**: Environment variable-driven data directory structure
+7. **Container Security**: Setup script detects and ranks container runtime security:
+   - **🟢 Rootless Podman** - Best security (user namespaces, no root access)
+   - **🟡 Rootless Docker** - Good security (user namespaces)
+   - **🔴 Rootful Podman** - Poor security (limited root access)
+   - **🔴 Rootful Docker** - Worst security (full root access equivalent)
+8. **Security Warnings**: Rootful modes trigger warnings with migration instructions
+9. **Migration Guidance**: Step-by-step commands provided for upgrading to rootless modes
+10. **🔒 Backup Encryption**: All backups automatically encrypted with AES-256-CBC using N8N_ENCRYPTION_KEY
+11. **Rclone Cloud Storage Integration**: Optional mounting via override file
+12. **Data Organization**: Environment variable-driven data directory structure
 
 ## Testing Autoscaling
 ```bash

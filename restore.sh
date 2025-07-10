@@ -38,6 +38,32 @@ DRY_RUN=false
 BACKUP_CURRENT=true
 AUTO_RESTART=true
 
+# Decryption function using N8N_ENCRYPTION_KEY
+decrypt_backup() {
+    local encrypted_file="$1"
+    local output_file="${encrypted_file%.enc}"
+    
+    if [[ "$encrypted_file" == *.enc ]]; then
+        if [ -n "${N8N_ENCRYPTION_KEY:-}" ] && [ ${#N8N_ENCRYPTION_KEY} -ge 16 ]; then
+            echo "    🔓 Decrypting backup..."
+            
+            # Use openssl to decrypt with the N8N_ENCRYPTION_KEY
+            if openssl enc -aes-256-cbc -d -in "$encrypted_file" -out "$output_file" -k "$N8N_ENCRYPTION_KEY" 2>/dev/null; then
+                echo "$output_file"
+            else
+                echo -e "${RED}❌ Decryption failed. Check N8N_ENCRYPTION_KEY${NC}" >&2
+                return 1
+            fi
+        else
+            echo -e "${RED}❌ N8N_ENCRYPTION_KEY not set or too short (min 16 chars)${NC}" >&2
+            return 1
+        fi
+    else
+        # File is not encrypted, return as-is
+        echo "$encrypted_file"
+    fi
+}
+
 echo -e "${GREEN}🔄 n8n-autoscaling Restore System${NC}"
 echo "================================================"
 
@@ -56,7 +82,7 @@ find_backups() {
             if [ -n "$timestamp" ]; then
                 backups["$timestamp|local"]="$file"
             fi
-        done < <(find "$BACKUPS_DIR/$service" -name "*.gz" -print0 2>/dev/null)
+        done < <(find "$BACKUPS_DIR/$service" -name "*.gz" -o -name "*.gz.enc" -print0 2>/dev/null)
     fi
     
     # Scan rclone cloud storage backups
@@ -67,7 +93,7 @@ find_backups() {
             if [ -n "$timestamp" ]; then
                 backups["$timestamp|rclone"]="$file"
             fi
-        done < <(find "$RCLONE_BACKUP_MOUNT/$service" -name "*.gz" -print0 2>/dev/null)
+        done < <(find "$RCLONE_BACKUP_MOUNT/$service" -name "*.gz" -o -name "*.gz.enc" -print0 2>/dev/null)
     fi
     
     # Return the associative array as key-value pairs
@@ -329,9 +355,23 @@ restore_postgres() {
     docker compose exec -T postgres psql -U "$POSTGRES_ADMIN_USER" -c "CREATE DATABASE $POSTGRES_DB OWNER $POSTGRES_USER;"
     docker compose exec -T postgres psql -U "$POSTGRES_ADMIN_USER" -c "GRANT ALL PRIVILEGES ON DATABASE $POSTGRES_DB TO $POSTGRES_USER;"
     
+    # Decrypt backup if needed
+    local backup_file="$filepath"
+    if [[ "$filepath" == *.enc ]]; then
+        backup_file=$(decrypt_backup "$filepath")
+        if [ $? -ne 0 ]; then
+            return 1
+        fi
+    fi
+    
     # Restore from backup (using application user)
     echo "  • Restoring data..."
-    gunzip -c "$filepath" | docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+    gunzip -c "$backup_file" | docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+    
+    # Clean up temporary decrypted file if we created one
+    if [[ "$filepath" == *.enc ]] && [ "$backup_file" != "$filepath" ]; then
+        rm -f "$backup_file"
+    fi
     
     echo -e "${GREEN}✅ PostgreSQL restore completed${NC}"
 }
@@ -355,11 +395,25 @@ restore_redis() {
     # Stop Redis for file replacement
     docker compose stop redis
     
+    # Decrypt backup if needed
+    local backup_file="$filepath"
+    if [[ "$filepath" == *.enc ]]; then
+        backup_file=$(decrypt_backup "$filepath")
+        if [ $? -ne 0 ]; then
+            return 1
+        fi
+    fi
+    
     # Restore Redis dump file
     echo "  • Restoring Redis data file..."
-    gunzip -c "$filepath" > "/tmp/dump.rdb"
+    gunzip -c "$backup_file" > "/tmp/dump.rdb"
     docker compose cp "/tmp/dump.rdb" redis:/data/dump.rdb
     rm -f "/tmp/dump.rdb"
+    
+    # Clean up temporary decrypted file if we created one
+    if [[ "$filepath" == *.enc ]] && [ "$backup_file" != "$filepath" ]; then
+        rm -f "$backup_file"
+    fi
     
     echo -e "${GREEN}✅ Redis restore completed${NC}"
 }
@@ -387,11 +441,25 @@ restore_n8n() {
     local data_dir="$BACKUPS_DIR/../Data"
     echo "  • Restoring n8n data directories..."
     
+    # Decrypt backup if needed
+    local backup_file="$filepath"
+    if [[ "$filepath" == *.enc ]]; then
+        backup_file=$(decrypt_backup "$filepath")
+        if [ $? -ne 0 ]; then
+            return 1
+        fi
+    fi
+    
     # Remove current data
     rm -rf "$data_dir/n8n" "$data_dir/n8n-webhook" 2>/dev/null || true
     
     # Extract backup
-    tar -xzf "$filepath" -C "$data_dir"
+    tar -xzf "$backup_file" -C "$data_dir"
+    
+    # Clean up temporary decrypted file if we created one
+    if [[ "$filepath" == *.enc ]] && [ "$backup_file" != "$filepath" ]; then
+        rm -f "$backup_file"
+    fi
     
     echo -e "${GREEN}✅ n8n data restore completed${NC}"
 }

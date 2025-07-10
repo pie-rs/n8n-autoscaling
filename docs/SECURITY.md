@@ -18,7 +18,7 @@
 
 ### Security Architecture
 
-```
+```mermaid
 Internet → Cloudflare → cloudflared → n8n (direct connection)
                                    ↓
                               PostgreSQL (localhost only)
@@ -28,14 +28,42 @@ Internet → Cloudflare → cloudflared → n8n (direct connection)
 
 ## Known Security Considerations
 
-### Docker Socket Access (High Impact)
+### Container Runtime Security (High Impact)
 
-**Issue**: The autoscaler requires Docker socket access to manage containers.
-**Impact**: Docker socket access provides root-level access to the host system.
-**Mitigation**: 
-- Only deploy on trusted networks
-- Consider rootless Docker where possible
-- For maximum security, use Kubernetes instead of Docker
+**Issue**: The autoscaler requires container runtime socket access to manage containers.
+**Impact**: Socket access security varies significantly by runtime mode:
+
+#### Security Ranking (Best to Worst)
+
+1. **🟢 Rootless Podman** - Containers run as regular user, no root access
+2. **🟡 Rootless Docker** - User namespaces provide good isolation
+3. **🔴 Rootful Podman** - Limited root access, better than Docker
+4. **🔴 Rootful Docker** - Full root access equivalent
+
+#### Rootless vs Rootful Differences
+
+**Rootless Mode (Recommended)**:
+
+- Containers run as your user account, not root
+- No access to privileged ports (< 1024)
+- Cannot modify host system files outside user space
+- Limited kernel access and system call restrictions
+- Significantly reduced attack surface
+
+**Rootful Mode (Security Risk)**:
+
+- Containers can gain root access to host system
+- Full access to host filesystem and devices
+- Can modify system configuration
+- Docker socket access = root access equivalent
+- High privilege escalation risk
+
+#### Migration Recommendations
+
+- **Immediate**: Migrate from rootful Docker to rootless Podman
+- **Good**: Migrate from rootful Docker to rootless Docker  
+- **Acceptable**: Migrate from rootful Podman to rootless Podman
+- **Last Resort**: Continue with rootful mode on isolated/trusted networks only
 
 ### Secrets Management
 
@@ -45,8 +73,9 @@ Internet → Cloudflare → cloudflared → n8n (direct connection)
 
 ### Backup Security
 
-**Current**: Unencrypted backups with 7-day retention
-**Recommendation**: Enable backup encryption for sensitive data
+**Current**: AES-256-CBC encrypted backups with 7-day retention
+**Security Level**: High (enterprise-grade encryption using N8N_ENCRYPTION_KEY)
+**Key Management**: Same encryption key used for n8n and backup encryption
 
 ## Reporting a Vulnerability
 

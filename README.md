@@ -347,6 +347,7 @@ The system includes automated backup functionality with incremental PostgreSQL b
 - **PostgreSQL**: Smart backup system (full every 12h, incremental hourly)
 - **Redis**: Database snapshots using BGSAVE (compressed) 
 - **n8n Data**: Complete data directories including webhook data (compressed)
+- **🔒 Encryption**: All backups automatically encrypted using your N8N_ENCRYPTION_KEY
 
 ### PostgreSQL Backup Strategy
 The system uses a sophisticated backup approach:
@@ -372,6 +373,25 @@ This approach reduces backup time and storage space while maintaining complete r
 # View help and cron examples
 ./backup.sh --help
 ```
+
+### 🔒 Backup Encryption
+
+All backups are automatically encrypted using AES-256-CBC encryption with your `N8N_ENCRYPTION_KEY`. This provides enterprise-grade security for your backup data.
+
+**Encryption Features:**
+- **Automatic**: All backups (PostgreSQL, Redis, n8n data) are encrypted by default
+- **Secure**: Uses AES-256-CBC encryption with salt
+- **Key Management**: Uses your existing `N8N_ENCRYPTION_KEY` (same as n8n encryption)
+- **Transparent**: Restore script automatically handles encrypted backups
+
+**Key Requirements:**
+- Your `N8N_ENCRYPTION_KEY` must be at least 16 characters
+- The same key is required for backup and restore operations
+- Keep your encryption key secure and backed up separately
+
+**File Extensions:**
+- Encrypted backups: `.gz.enc` (e.g., `postgres_full_20240115_143022.sql.gz.enc`)
+- Unencrypted backups: `.gz` (when encryption key not available)
 
 ### Recommended Cron Schedule
 Add to crontab for automated backups:
@@ -446,6 +466,7 @@ The system includes an interactive restore script that automates recovery:
 **Restore Script Features:**
 - **Interactive Menu**: Choose service and backup point
 - **Multi-Source Discovery**: Finds backups from both local and rclone cloud storage
+- **🔒 Automatic Decryption**: Handles encrypted backups transparently using N8N_ENCRYPTION_KEY
 - **Safety Backup**: Creates backup of current data before restore
 - **Integrity Validation**: Verifies backup files before restore
 - **Smart Container Management**: Safely stops/starts containers
@@ -513,10 +534,19 @@ All performance variables are commented out by default. Uncomment and adjust bas
 
 ### ⚠️ Security Considerations
 
-**Docker Socket Access**: The autoscaler requires Docker socket access to manage containers. This provides significant privileges:
-- **Risk**: Docker socket access is equivalent to root access on the host system
-- **Mitigation**: Only run on trusted networks, consider using rootless Docker
-- **Alternative**: For maximum security, consider Kubernetes instead of Docker for container orchestration
+**Container Runtime Security**: The autoscaler requires container runtime socket access. Security varies significantly:
+
+#### Security Ranking (Automatic Detection)
+1. **🟢 Rootless Podman** - Maximum security, containers run as regular user
+2. **🟡 Rootless Docker** - Good security with user namespaces  
+3. **🔴 Rootful Podman** - Limited security, some root access
+4. **🔴 Rootful Docker** - Poor security, full root access equivalent
+
+**Automatic Security Features**:
+- **Smart Detection**: Setup script automatically detects and ranks available container runtimes
+- **Security Warnings**: Clear warnings displayed for rootful modes with migration guidance
+- **Migration Instructions**: Step-by-step commands to upgrade to more secure configurations
+- **User Confirmation**: Explicit acknowledgment required to proceed with less secure setups
 
 **Database Security**: 
 - PostgreSQL defaults to localhost-only binding for security
@@ -524,9 +554,9 @@ All performance variables are commented out by default. Uncomment and adjust bas
 - Consider enabling Tailscale for secure remote database access
 
 **Backup Security**:
-- Backups may contain sensitive workflow data
-- Consider encrypting backups before cloud storage upload
-- Regularly rotate backup encryption keys
+- ✅ **Automatic Encryption**: All backups encrypted with AES-256-CBC using N8N_ENCRYPTION_KEY
+- ✅ **Secure by Default**: No configuration needed - encryption happens automatically
+- ⚠️ **Key Management**: Keep your N8N_ENCRYPTION_KEY secure and backed up separately
 
 ### 🔒 Production Security Checklist
 

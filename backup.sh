@@ -38,6 +38,28 @@ mkdir -p "$BACKUPS_DIR"/{postgres,redis,n8n}
 # Get current timestamp
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
+# Encryption function using N8N_ENCRYPTION_KEY
+encrypt_backup() {
+    local input_file="$1"
+    local output_file="${input_file}.enc"
+    
+    if [ -n "${N8N_ENCRYPTION_KEY:-}" ] && [ ${#N8N_ENCRYPTION_KEY} -ge 16 ]; then
+        echo "    🔒 Encrypting backup..."
+        
+        # Use openssl with AES-256-CBC encryption and the N8N_ENCRYPTION_KEY
+        if openssl enc -aes-256-cbc -salt -in "$input_file" -out "$output_file" -k "$N8N_ENCRYPTION_KEY" 2>/dev/null; then
+            rm "$input_file"  # Remove unencrypted file
+            echo "$output_file"
+        else
+            echo -e "${YELLOW}⚠️  Encryption failed, keeping unencrypted backup${NC}" >&2
+            echo "$input_file"
+        fi
+    else
+        echo -e "${YELLOW}⚠️  N8N_ENCRYPTION_KEY not set or too short (min 16 chars), storing unencrypted backup${NC}" >&2
+        echo "$input_file"
+    fi
+}
+
 echo -e "${GREEN}🔄 Starting backup process for n8n-autoscaling${NC}"
 echo "================================================"
 
@@ -58,6 +80,8 @@ backup_postgres_full() {
     docker compose exec -T postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$BACKUP_FILE"
     
     if [ -f "$BACKUP_FILE" ] && [ -s "$BACKUP_FILE" ]; then
+        # Encrypt the backup
+        BACKUP_FILE=$(encrypt_backup "$BACKUP_FILE")
         echo -e "    ✅ Full backup completed: $(du -h "$BACKUP_FILE" | cut -f1)"
         
         # Create a marker file for incremental backups
@@ -102,6 +126,8 @@ backup_postgres_incremental() {
     docker compose exec postgres tar -czf - -C /var/lib/postgresql/data/pg_wal . 2>/dev/null | cat > "$BACKUP_FILE"
     
     if [ -f "$BACKUP_FILE" ] && [ -s "$BACKUP_FILE" ]; then
+        # Encrypt the backup
+        BACKUP_FILE=$(encrypt_backup "$BACKUP_FILE")
         echo -e "    ✅ Incremental backup completed: $(du -h "$BACKUP_FILE" | cut -f1)"
         echo "    📝 WAL file: $CURRENT_WAL"
     else
@@ -178,6 +204,8 @@ backup_redis() {
     docker compose exec redis cat /data/dump.rdb | gzip > "$BACKUP_FILE"
     
     if [ -f "$BACKUP_FILE" ] && [ -s "$BACKUP_FILE" ]; then
+        # Encrypt the backup
+        BACKUP_FILE=$(encrypt_backup "$BACKUP_FILE")
         echo -e "    ✅ Redis backup completed: $(du -h "$BACKUP_FILE" | cut -f1)"
     else
         echo -e "${RED}    ❌ Redis backup failed${NC}"
@@ -202,6 +230,8 @@ backup_n8n() {
     tar -czf "$BACKUP_FILE" -C "$DATA_DIR" $(ls -d n8n n8n-webhook 2>/dev/null | tr '\n' ' ')
     
     if [ -f "$BACKUP_FILE" ] && [ -s "$BACKUP_FILE" ]; then
+        # Encrypt the backup
+        BACKUP_FILE=$(encrypt_backup "$BACKUP_FILE")
         echo -e "    ✅ n8n data backup completed: $(du -h "$BACKUP_FILE" | cut -f1)"
     else
         echo -e "${RED}    ❌ n8n data backup failed${NC}"
@@ -257,11 +287,15 @@ cleanup_local_backups() {
     
     echo -e "${YELLOW}🧹 Cleaning up old local backups (>7 days)...${NC}"
     
-    # Remove files older than 7 days
+    # Remove files older than 7 days (both encrypted and unencrypted)
     find "$BACKUPS_DIR" -name "*.gz" -type f -mtime +7 -delete 2>/dev/null || true
+    find "$BACKUPS_DIR" -name "*.gz.enc" -type f -mtime +7 -delete 2>/dev/null || true
     find "$BACKUPS_DIR" -name "*.sql.gz" -type f -mtime +7 -delete 2>/dev/null || true
+    find "$BACKUPS_DIR" -name "*.sql.gz.enc" -type f -mtime +7 -delete 2>/dev/null || true
     find "$BACKUPS_DIR" -name "*.rdb.gz" -type f -mtime +7 -delete 2>/dev/null || true
+    find "$BACKUPS_DIR" -name "*.rdb.gz.enc" -type f -mtime +7 -delete 2>/dev/null || true
     find "$BACKUPS_DIR" -name "*.tar.gz" -type f -mtime +7 -delete 2>/dev/null || true
+    find "$BACKUPS_DIR" -name "*.tar.gz.enc" -type f -mtime +7 -delete 2>/dev/null || true
     
     echo "  ✅ Old local backups cleaned up"
 }
@@ -272,13 +306,13 @@ show_backup_summary() {
     
     if [ -n "$RCLONE_BACKUP_MOUNT" ] && [ -d "$RCLONE_BACKUP_MOUNT" ]; then
         RCLONE_SIZE=$(du -sh "$RCLONE_BACKUP_MOUNT" 2>/dev/null | cut -f1)
-        RCLONE_COUNT=$(find "$RCLONE_BACKUP_MOUNT" -name "*.gz" -type f | wc -l)
+        RCLONE_COUNT=$(find "$RCLONE_BACKUP_MOUNT" \( -name "*.gz" -o -name "*.gz.enc" \) -type f | wc -l)
         echo "  • Rclone cloud storage backup size: $RCLONE_SIZE"
         echo "  • Rclone cloud storage backup files: $RCLONE_COUNT"
         echo "  • Rclone cloud storage path: $RCLONE_BACKUP_MOUNT"
     elif [ -d "$BACKUPS_DIR" ]; then
         BACKUP_SIZE=$(du -sh "$BACKUPS_DIR" 2>/dev/null | cut -f1)
-        BACKUP_COUNT=$(find "$BACKUPS_DIR" -name "*.gz" -type f | wc -l)
+        BACKUP_COUNT=$(find "$BACKUPS_DIR" \( -name "*.gz" -o -name "*.gz.enc" \) -type f | wc -l)
         echo "  • Local backup size: $BACKUP_SIZE"
         echo "  • Local backup files: $BACKUP_COUNT"
         echo "  • Local backup directory: $BACKUPS_DIR"
@@ -379,6 +413,11 @@ case "${1:-}" in
         echo "  - Full backups: Complete database dump (larger, standalone)"
         echo "  - Incremental backups: WAL files since last full backup (smaller, faster)"
         echo "  - Smart backup: Automatically chooses full (every 12h) or incremental"
+        echo ""
+        echo "🔒 Security Features:"
+        echo "  - All backups automatically encrypted with AES-256-CBC"
+        echo "  - Uses N8N_ENCRYPTION_KEY for encryption (must be 16+ characters)"
+        echo "  - Encrypted files have .enc extension (e.g., backup.sql.gz.enc)"
         echo ""
         echo "Recommended cron schedule:"
         echo "  0 * * * * $SCRIPT_DIR/backup.sh                    # Hourly smart backups"

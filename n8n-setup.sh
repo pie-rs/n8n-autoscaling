@@ -612,22 +612,142 @@ echo ""
 echo "${BLUE}🐳 Container Runtime Configuration${NC}"
 echo "---------------------------------"
 
-# Detect container runtime
+# Function to detect if runtime is rootless
+detect_rootless_mode() {
+    local runtime="$1"
+    
+    if [ "$runtime" = "podman" ]; then
+        # Check if podman is running in rootless mode
+        if podman info --format "{{.Host.Security.Rootless}}" 2>/dev/null | grep -q "true"; then
+            echo "rootless"
+        else
+            echo "rootful"
+        fi
+    elif [ "$runtime" = "docker" ]; then
+        # Check if Docker is running in rootless mode
+        if docker info 2>/dev/null | grep -q "rootless"; then
+            echo "rootless"
+        else
+            echo "rootful"
+        fi
+    else
+        echo "unknown"
+    fi
+}
+
+# Detect container runtime and mode
+PODMAN_AVAILABLE=false
+DOCKER_AVAILABLE=false
+PODMAN_MODE=""
+DOCKER_MODE=""
+
 if command -v podman &> /dev/null; then
-    CONTAINER_RUNTIME="podman"
-elif command -v docker &> /dev/null; then
-    CONTAINER_RUNTIME="docker"
-else
-    CONTAINER_RUNTIME="none"
+    PODMAN_AVAILABLE=true
+    PODMAN_MODE=$(detect_rootless_mode "podman")
 fi
 
-echo "${BLUE}ℹ️  Detected container runtime: $CONTAINER_RUNTIME${NC}"
+if command -v docker &> /dev/null; then
+    DOCKER_AVAILABLE=true
+    DOCKER_MODE=$(detect_rootless_mode "docker")
+fi
 
-if [ "$CONTAINER_RUNTIME" = "none" ]; then
+# Security ranking (best to worst)
+# 1. Rootless Podman (most secure)
+# 2. Rootless Docker (secure)  
+# 3. Rootful Podman (less secure)
+# 4. Rootful Docker (least secure)
+
+if [ "$PODMAN_AVAILABLE" = "true" ] && [ "$PODMAN_MODE" = "rootless" ]; then
+    CONTAINER_RUNTIME="podman"
+    RUNTIME_MODE="rootless"
+    SECURITY_LEVEL="🟢 Maximum"
+elif [ "$DOCKER_AVAILABLE" = "true" ] && [ "$DOCKER_MODE" = "rootless" ]; then
+    CONTAINER_RUNTIME="docker"
+    RUNTIME_MODE="rootless"
+    SECURITY_LEVEL="🟡 Good"
+elif [ "$PODMAN_AVAILABLE" = "true" ]; then
+    CONTAINER_RUNTIME="podman"
+    RUNTIME_MODE="rootful"
+    SECURITY_LEVEL="🔴 Poor"
+elif [ "$DOCKER_AVAILABLE" = "true" ]; then
+    CONTAINER_RUNTIME="docker"
+    RUNTIME_MODE="rootful"
+    SECURITY_LEVEL="🔴 Poor"
+else
     echo "${RED}❌ No container runtime detected. Please install Docker or Podman.${NC}"
+    echo ""
+    echo "${BLUE}📋 Installation options:${NC}"
+    echo "   Rootless Podman (most secure): https://podman.io/docs/installation"
+    echo "   Rootless Docker: https://docs.docker.com/engine/security/rootless/"
     exit 1
 fi
 
+echo "${BLUE}ℹ️  Detected: $CONTAINER_RUNTIME ($RUNTIME_MODE mode)${NC}"
+echo "${BLUE}ℹ️  Security level: $SECURITY_LEVEL${NC}"
+
+# Display security warnings and migration guidance
+if [ "$RUNTIME_MODE" = "rootful" ]; then
+    echo ""
+    echo "${RED}⚠️  SECURITY WARNING: Running in rootful mode${NC}"
+    echo "${YELLOW}   Docker socket access provides root-level privileges to containers${NC}"
+    echo "${YELLOW}   This is equivalent to giving containers full access to your host system${NC}"
+    echo ""
+    
+    if [ "$CONTAINER_RUNTIME" = "docker" ]; then
+        echo "${BLUE}🔒 To improve security, consider migrating to rootless Docker:${NC}"
+        echo "   1. Stop current Docker daemon:"
+        echo "      sudo systemctl stop docker"
+        echo ""
+        echo "   2. Install and configure rootless Docker:"
+        echo "      curl -fsSL https://get.docker.com/rootless | sh"
+        echo "      systemctl --user enable docker"
+        echo "      systemctl --user start docker"
+        echo ""
+        echo "   3. Update your shell environment:"
+        echo "      echo 'export DOCKER_HOST=unix:///run/user/\$(id -u)/docker.sock' >> ~/.bashrc"
+        echo "      source ~/.bashrc"
+        echo ""
+        echo "${BLUE}🔒 Or consider migrating to rootless Podman (even more secure):${NC}"
+        echo "   1. Install Podman:"
+        echo "      sudo apt install podman  # Ubuntu/Debian"
+        echo "      brew install podman      # macOS"
+        echo ""
+        echo "   2. Configure Podman:"
+        echo "      podman machine init"
+        echo "      podman machine start"
+        echo ""
+    elif [ "$CONTAINER_RUNTIME" = "podman" ]; then
+        echo "${BLUE}🔒 To improve security, migrate to rootless Podman:${NC}"
+        echo "   1. Stop current rootful Podman:"
+        echo "      sudo systemctl stop podman"
+        echo ""
+        echo "   2. Configure rootless Podman:"
+        echo "      podman machine init"
+        echo "      podman machine start"
+        echo ""
+        echo "   3. Enable user lingering for automatic startup:"
+        echo "      sudo loginctl enable-linger \$(whoami)"
+        echo ""
+    fi
+    
+    echo "${YELLOW}ℹ️  After migration, re-run this setup script to use the new runtime${NC}"
+    echo ""
+    echo -n "Continue with current $RUNTIME_MODE $CONTAINER_RUNTIME? [y/N]: "
+    read -r continue_response
+    case "$continue_response" in
+        [Yy]|[Yy][Ee][Ss])
+            echo "${YELLOW}⚠️  Proceeding with $RUNTIME_MODE $CONTAINER_RUNTIME (security risk acknowledged)${NC}"
+            ;;
+        *)
+            echo "${BLUE}ℹ️  Setup cancelled. Please configure a more secure container runtime and try again.${NC}"
+            exit 0
+            ;;
+    esac
+else
+    echo "${GREEN}✅ Running in rootless mode - excellent security posture!${NC}"
+fi
+
+echo ""
 echo -n "Use detected container runtime ($CONTAINER_RUNTIME)? [Y/n]: "
 read -r runtime_response
 if [ -z "$runtime_response" ]; then
