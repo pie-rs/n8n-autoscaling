@@ -163,6 +163,38 @@ To enable automatic Google Drive sync:
 - **Google Drive**: Configured path with automatic cleanup
 - **Retention**: 7 days for all backup types
 
+## Performance Tuning
+
+The system includes extensive performance tuning options in `.env.example`. Uncomment and adjust these variables as needed:
+
+### n8n Performance
+- `N8N_CONCURRENCY_PRODUCTION_LIMIT`: Tasks per worker (default: 10)
+- `N8N_EXECUTIONS_DATA_PRUNE`: Enable automatic execution data cleanup
+- `N8N_EXECUTIONS_DATA_MAX_AGE`: Keep executions for X hours (default: 336 = 2 weeks)
+- `NODE_OPTIONS`: Node.js memory limits and optimization flags
+- `UV_THREADPOOL_SIZE`: Node.js thread pool size for I/O operations
+
+### PostgreSQL Performance
+- `POSTGRES_SHARED_BUFFERS`: Memory for caching data (default: 256MB)
+- `POSTGRES_EFFECTIVE_CACHE_SIZE`: Total memory available for caching (default: 1GB)
+- `POSTGRES_WORK_MEM`: Memory per query operation (default: 4MB)
+- `POSTGRES_MAX_WORKER_PROCESSES`: Background worker processes
+- Parallel query settings for improved performance on multi-core systems
+
+### Redis Performance
+- `REDIS_MAXMEMORY`: Maximum memory usage (default: 512mb)
+- `REDIS_MAXMEMORY_POLICY`: Eviction policy when memory limit reached
+- `REDIS_SAVE_*`: Persistence configuration for snapshots
+- Connection and networking optimizations
+
+### Autoscaler Performance
+- `AUTOSCALER_CPU_LIMIT`: CPU limit for autoscaler container
+- `AUTOSCALER_MEMORY_LIMIT`: Memory limit for autoscaler container
+- `AUTOSCALER_REDIS_POOL_SIZE`: Connection pool size for Redis
+- `AUTOSCALER_DOCKER_TIMEOUT`: Timeout for Docker operations
+
+All performance variables are commented out by default. Uncomment and adjust based on your system resources and workload requirements.
+
 ## Troubleshooting
 
 - Check container logs: `docker compose logs [service]`

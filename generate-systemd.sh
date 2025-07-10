@@ -86,7 +86,7 @@ fi
 cat > "${SERVICE_NAME}.service" << EOF
 [Unit]
 Description=n8n Autoscaling Stack
-Documentation=${DOCS_README:-https://github.com/conor-is-my-name/n8n-autoscaling/blob/main/README.md}
+Documentation=${DOCS_README}
 After=network-online.target
 Wants=network-online.target
 
