@@ -26,7 +26,6 @@ fi
 
 # Use environment variables with fallback to defaults
 DATA_DIR=${DATA_DIR:-./Data}
-LOGS_DIR=${LOGS_DIR:-./Logs}
 BACKUPS_DIR=${BACKUPS_DIR:-./backups}
 
 # Create local data directories
@@ -36,14 +35,12 @@ mkdir -p "${DATA_DIR}/Redis"
 mkdir -p "${DATA_DIR}/n8n"
 mkdir -p "${DATA_DIR}/n8n-webhook"
 mkdir -p "${DATA_DIR}/Traefik"
-mkdir -p "${LOGS_DIR}"
 mkdir -p "${BACKUPS_DIR}"
 
 
 # Set appropriate permissions
 echo "Setting directory permissions..."
 chmod -R 755 "${DATA_DIR}" 2>/dev/null || true
-chmod -R 755 "${LOGS_DIR}" 2>/dev/null || true
 chmod -R 755 "${BACKUPS_DIR}" 2>/dev/null || true
 
 echo ""
@@ -55,7 +52,6 @@ echo "  ${DATA_DIR}/Redis       - Redis data"
 echo "  ${DATA_DIR}/n8n         - n8n main data"
 echo "  ${DATA_DIR}/n8n-webhook - n8n webhook data"
 echo "  ${DATA_DIR}/Traefik     - Traefik data"
-echo "  ${LOGS_DIR}             - Application logs"
 echo "  ${BACKUPS_DIR}          - Backup files"
 echo ""
 # Create external network if configured

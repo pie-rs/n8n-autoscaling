@@ -70,6 +70,7 @@ x-n8n: &service-n8n
     # Queue mode config
     - EXECUTIONS_MODE=${EXECUTIONS_MODE}
     - QUEUE_BULL_REDIS_HOST=${QUEUE_BULL_REDIS_HOST}
+    - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
     - QUEUE_HEALTH_CHECK_ACTIVE=${QUEUE_HEALTH_CHECK_ACTIVE}
     - N8N_QUEUE_BULL_GRACEFULSHUTDOWNTIMEOUT=${N8N_QUEUE_BULL_GRACEFULSHUTDOWNTIMEOUT}
     - N8N_GRACEFUL_SHUTDOWN_TIMEOUT=${N8N_GRACEFUL_SHUTDOWN_TIMEOUT}
@@ -120,13 +121,14 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     restart: unless-stopped
     logging: *default-logging
 #    ports:
 #      - 6379:6379
+    command: redis-server --requirepass "${REDIS_PASSWORD}"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 1s
       timeout: 3s
     volumes:
@@ -263,7 +265,7 @@ services:
     environment:
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
-      # - REDIS_PASSWORD=your_redis_password # Add if you set one for Redis
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
       - QUEUE_NAME_PREFIX=${QUEUE_NAME_PREFIX}
       - QUEUE_NAME=${QUEUE_NAME}
       - N8N_WORKER_SERVICE_NAME=${N8N_WORKER_SERVICE_NAME} # Service name in this docker-compose file
