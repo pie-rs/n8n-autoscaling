@@ -141,7 +141,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     ports:
-      - "${TAILSCALE_IP:-0.0.0.0}:5432:5432" # Bind to Tailscale IP if set, otherwise all interfaces
+      - "${TAILSCALE_IP:-127.0.0.1}:5432:5432"  # Default to localhost only for security
     environment:
       - POSTGRES_DB=postgres  # Default database for admin user
       - POSTGRES_USER=${POSTGRES_ADMIN_USER}

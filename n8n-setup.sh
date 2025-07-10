@@ -274,6 +274,16 @@ case "$secrets_response" in
         
         echo "${YELLOW}🔄 Generating secrets...${NC}"
         
+        # Security validation: Reject dangerous default passwords
+        INSECURE_DEFAULTS="YOURPASSWORD YOURKEY your_tunnel_token_here changeme password 123456"
+        for default in $INSECURE_DEFAULTS; do
+            if [ "$SALT" = "$default" ] || [ -z "$SALT" ]; then
+                echo "${RED}❌ Security Error: Cannot use default or empty salt value${NC}"
+                echo "${YELLOW}⚠️  For security, please provide a unique salt value${NC}"
+                exit 1
+            fi
+        done
+        
         # Simple secret generation without complex function
         REDIS_PASSWORD=$(echo -n "${SALT}redis$(date +%s)" | sha256sum | cut -c1-32)
         POSTGRES_PASSWORD=$(echo -n "${SALT}postgres$(date +%s)" | sha256sum | cut -c1-32)
