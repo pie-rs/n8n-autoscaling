@@ -1,5 +1,5 @@
-# Use an official Python runtime as a parent image
-FROM python:3.9-slim
+# Use latest stable Python 3.12 slim image for better security and performance
+FROM python:3.12-slim
 
 # Set the working directory in the container
 WORKDIR /usr/src/app
@@ -10,6 +10,13 @@ COPY ./monitor/monitor_redis_queue.py .
 # Install any needed packages specified in requirements.txt
 # For this script, we only need 'redis'
 RUN pip install --no-cache-dir redis
+
+# Create non-root user for security
+RUN useradd -m -u 1000 monitor && \
+    chown -R monitor:monitor /usr/src/app
+
+# Switch to non-root user
+USER monitor
 
 # Define environment variables that can be overridden at runtime
 # These defaults should work with the existing docker-compose.yml

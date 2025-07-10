@@ -1,0 +1,50 @@
+# Git files
+.git
+.gitignore
+
+# Documentation
+*.md
+docs/
+LICENSE
+
+# Environment files
+.env
+.env.*
+
+# Docker volumes
+postgres_data/
+redis_data/
+n8n_main/
+n8n_webhook/
+traefik_data/
+
+# Logs
+*.log
+logs/
+Logs/
+
+# Data directories (for production setup)
+Data/
+backups/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Claude files
+.claude/
+CLAUDE.md
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python

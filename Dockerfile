@@ -1,60 +1,37 @@
-FROM node:20
-#need platform flag before n20 if building on arm
+# Use official n8n image as base
+# Multi-architecture support via Docker buildx
+FROM n8nio/n8n:latest
 
-# Install dependencies for Puppeteer
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libasound2 \
-    libpangocairo-1.0-0 \
-    libpango-1.0-0 \
-    libgbm1 \
-    libnss3 \
-    libxshmfence1 \
-    ca-certificates \
-    fonts-liberation \
-    libappindicator3-1 \
-    libgtk-3-0 \
-    wget \
-    xdg-utils \
-    lsb-release \
-    fonts-noto-color-emoji \
+# Switch to root for package installation
+USER root
+
+# Install Chromium and its dependencies for Puppeteer
+# The n8n base image uses Alpine Linux
+# Note: ca-certificates already included in n8n base image
+RUN apk add --no-cache \
+    chromium \
+    chromium-chromedriver \
     ffmpeg \
-    git \
-    openssh-client \
-    graphicsmagick \
-    tini \
-    tzdata \
-    jq \
-    && rm -rf /var/lib/apt/lists/*
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    nss \
+    ttf-freefont \
+    && rm -rf /var/cache/apk/*
 
-# Install Chromium browser
-RUN apt-get update && apt-get install -y chromium && \
-    rm -rf /var/lib/apt/lists/*
+# Install Puppeteer without downloading Chromium (we'll use system Chromium)
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
-# Install n8n and Puppeteer
-RUN npm install -g n8n puppeteer
-# Add npm global bin to PATH to ensure n8n executable is found
-ENV PATH="/usr/local/lib/node_modules/n8n/bin:$PATH"
+RUN npm install -g puppeteer
 
-# Set environment variables
-ENV N8N_LOG_LEVEL=info
-ENV NODE_FUNCTION_ALLOW_EXTERNAL=ajv,ajv-formats,puppeteer,ffmpeg,git,graphicsmagick,openssh-client
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-
-# Expose the n8n port
-EXPOSE 5678
-
-# Create proper entrypoint scripts with shebang
+# Create entrypoint scripts for worker and webhook modes
 RUN printf '#!/bin/sh\nexec n8n worker\n' > /worker && \
     printf '#!/bin/sh\nexec n8n webhook\n' > /webhook && \
     chmod +x /worker /webhook
 
-# Start n8n (default command)
-CMD ["n8n", "start"]
+# Switch back to node user (as per official n8n image)
+USER node
+
+# Keep the official image's entrypoint and command
+# The base image already exposes port 5678 and has proper entrypoint

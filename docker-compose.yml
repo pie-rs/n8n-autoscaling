@@ -15,7 +15,6 @@ x-n8n: &service-n8n
   build:
     context: .
     dockerfile: Dockerfile
-  user: root:root
   restart: unless-stopped
   networks:
     - n8n-network
@@ -56,6 +55,7 @@ x-n8n: &service-n8n
 services:
   cloudflared:
     image: cloudflare/cloudflared:latest
+    platform: linux/amd64  # Cloudflared supports multiple platforms
     restart: unless-stopped
     networks:
       - n8n-network
