@@ -14,9 +14,9 @@ n8n-webhook
 ./Data
 ./Data/Postgres (etc for different apps)
 
-## add a mount to n8n containers for gdrive
-  - we will use gdrive as a datastore add a r/w mount
-    /user/webapps/mounts/gdrive-data
+## add a mount to n8n containers for rclone cloud storage
+  - we will use rclone as a datastore add a r/w mount
+    /user/webapps/mounts/rclone-data
 
 
 
@@ -46,8 +46,8 @@ by default autodetect but add an environment variable to enable choice
 
  - detail a cron to
 
-   - move completed backups to /user/webapps/mounts/gdrive-backups
-   - delete backups older than 7 days from /user/webapps/mounts/gdrive-backups
+   - move completed backups to /user/webapps/mounts/rclone-backups
+   - delete backups older than 7 days from /user/webapps/mounts/rclone-backups
 
 ## upgrade to redis 8
   - make the redis password compulsorary

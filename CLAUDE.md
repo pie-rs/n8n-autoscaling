@@ -32,7 +32,7 @@ This is a Docker-based autoscaling solution for n8n workflow automation platform
 # 3. Generate secure random secrets (optional)
 # 4. Detect and configure timezone
 # 5. Configure external network (optional)
-# 6. Set up Google Drive integration with directory validation (optional)
+# 6. Set up rclone cloud storage integration with directory validation (optional)
 # 7. Configure Cloudflare Tunnel with token validation (optional)
 # 8. Configure Tailscale IP for PostgreSQL binding (optional)
 # 9. Configure n8n and webhook URLs
@@ -146,7 +146,7 @@ Critical environment variables in `.env`:
 4. **Queue Monitoring**: Check both `bull:jobs:wait` and `bull:jobs:waiting` (BullMQ v4+)
 5. **Scaling Cooldown**: Prevents thrashing with 3-minute default between actions
 6. **Tailscale Support**: PostgreSQL can bind to Tailscale IP for secure access
-7. **Google Drive Integration**: Optional mounting via override file
+7. **Rclone Cloud Storage Integration**: Optional mounting via override file
 8. **Data Organization**: Environment variable-driven data directory structure
 
 ## Testing Autoscaling
@@ -160,28 +160,28 @@ docker compose logs -f n8n-autoscaler
 docker compose ps | grep n8n-worker
 ```
 
-## Google Drive Integration
+## Rclone Cloud Storage Integration
 
-The system supports optional Google Drive mounting for data storage:
+The system supports optional rclone cloud storage mounting for data storage:
 
-### Enable Google Drive
+### Enable Rclone Cloud Storage
 ```bash
-# 1. Edit .env and uncomment the Google Drive variables:
-# GDRIVE_DATA_MOUNT=/user/webapps/mounts/gdrive-data
-# GDRIVE_BACKUP_MOUNT=/user/webapps/mounts/gdrive-backups
+# 1. Edit .env and uncomment the rclone variables:
+# RCLONE_DATA_MOUNT=/user/webapps/mounts/rclone-data
+# RCLONE_BACKUP_MOUNT=/user/webapps/mounts/rclone-backups
 
-# 2. Create directories and start with Google Drive support
-./setup.sh
-docker compose -f docker-compose.yml -f docker-compose.gdrive.yml up -d
+# 2. Create directories and start with rclone support
+./n8n-setup.sh
+docker compose -f docker-compose.yml -f docker-compose.rclone.yml up -d
 ```
 
-### Disable Google Drive
+### Disable Rclone Cloud Storage
 ```bash
 # Use standard compose file (default)
 docker compose up -d
 ```
 
-**Note**: Only `n8n` and `n8n-worker` services get Google Drive access. The `n8n-webhook` service does not need it.
+**Note**: Only `n8n` and `n8n-worker` services get rclone cloud storage access. The `n8n-webhook` service does not need it.
 
 ## Common Issues
 
@@ -189,7 +189,7 @@ docker compose up -d
 2. **Webhooks not working**: Ensure using Cloudflare URL, not localhost
 3. **Scaling too aggressive**: Adjust thresholds and cooldown in .env
 4. **Container permissions**: n8n services run as root:root by design
-5. **Google Drive not mounting**: Ensure directories exist and GDRIVE variables are uncommented in .env
+5. **Rclone cloud storage not mounting**: Ensure directories exist and RCLONE variables are uncommented in .env
 
 ## Production Requirements (from project.spec.md)
 
@@ -202,14 +202,14 @@ docker compose up -d
    - Logs: `./Logs`
    - Data: `./Data/Postgres`, `./Data/Redis`, etc.
    - Backups: `./backups`
-5. **Google Drive Integration**: Mount at `/user/webapps/mounts/gdrive-data` for n8n containers
+5. **Rclone Cloud Storage Integration**: Mount at `/user/webapps/mounts/rclone-data` for n8n containers
 6. **Systemd Integration**: Script to generate systemd service files
 7. **Log Rotation**: Daily rotation, compression, 7-day retention
 8. **Backup Strategy**:
    - PostgreSQL: Full backup every 12 hours, incremental hourly
    - Redis: Hourly snapshots
    - n8n data: Hourly backups
-   - Auto-move to `/user/webapps/mounts/gdrive-backups`
+   - Auto-move to `/user/webapps/mounts/rclone-backups`
    - 7-day retention policy
 
 ### Completed Production Enhancements ✅
@@ -236,10 +236,10 @@ docker compose up -d
    - `./Data/Postgres`, `./Data/Redis`, `./Data/n8n`, etc.
    - `./Logs` for application logs
    - `./backups` for backup storage
-7. **✅ Google Drive Integration**: Optional mount system
+7. **✅ Rclone Cloud Storage Integration**: Optional mount system
    - Conditional mounting only when configured
-   - Override file `docker-compose.gdrive.yml` for optional integration
-   - Only n8n and n8n-worker services get Google Drive access (not webhook)
+   - Override file `docker-compose.rclone.yml` for optional integration
+   - Only n8n and n8n-worker services get rclone cloud storage access (not webhook)
 8. **✅ Logging Configuration**: Structured logging with rotation limits
    - Configurable log driver, max size, and file count
    - Applied to all services uniformly
@@ -259,7 +259,7 @@ docker compose up -d
     - User vs system service installation
     - Podman auto-update integration with labels
     - Lingering setup for rootless Podman
-    - Google Drive integration prompt
+    - Rclone cloud storage integration prompt
     - No update timers (simplified approach)
 
 12. **✅ Automatic Updates**: Different strategies by runtime
@@ -282,17 +282,17 @@ docker compose up -d
     - Updated all Redis CLI commands in documentation
     - Added password configuration to autoscaler environment
 
-15. **✅ Backup System**: Comprehensive backup strategy with Google Drive integration
+15. **✅ Backup System**: Comprehensive backup strategy with rclone cloud storage integration
     - PostgreSQL: Smart backup system (full every 12h, incremental hourly)
     - Redis: Database snapshots using BGSAVE (compressed)
     - n8n Data: Complete data directories including webhook data (compressed)
-    - Automatic Google Drive sync with local cleanup when configured
-    - 7-day retention policy (on Google Drive when enabled, locally otherwise)
+    - Automatic rclone cloud storage sync with local cleanup when configured
+    - 7-day retention policy (on rclone cloud storage when enabled, locally otherwise)
     - Single script handles all backup types with individual service options
     - Cron-ready with suggested hourly and twice-daily schedules
 
 16. **✅ Restore System**: Interactive point-in-time recovery with safety features
-    - Multi-source backup discovery (local and Google Drive)
+    - Multi-source backup discovery (local and rclone cloud storage)
     - Interactive menu for service and backup selection
     - Automatic safety backup before restore
     - Backup integrity validation (compression, SQL structure, size checks)
@@ -326,7 +326,7 @@ docker compose up -d
     - **Secure Secret Generation**: Generates cryptographically secure passwords, encryption keys, and tokens using user-provided salt
     - **Timezone Detection**: Automatically detects system timezone with option to override
     - **External Network Configuration**: Optional external network setup for container integration
-    - **Google Drive Integration**: Optional Google Drive mount configuration with directory validation and creation
+    - **Rclone Cloud Storage Integration**: Optional rclone cloud storage mount configuration with directory validation and creation
     - **Cloudflare Tunnel Configuration**: Optional Cloudflare tunnel token setup with validation
     - **Tailscale Integration**: Optional Tailscale IP configuration for secure PostgreSQL binding
     - **URL Configuration**: Validates and configures n8n main and webhook URLs
@@ -346,7 +346,7 @@ All production requirements from `docs/project.spec.md` have been successfully i
 ✅ **Root and rootless Podman compatibility with auto-detection**
 ✅ **Systemd service file generation script**
 ✅ **Log rotation handled by Docker/Podman built-in system**
-✅ **Comprehensive backup system with Google Drive integration**
+✅ **Comprehensive backup system with rclone cloud storage integration**
 ✅ **Redis 8 upgrade with mandatory password authentication**
 ✅ **Performance tuning variables for all applications**
 ✅ **PostgreSQL security with environment-based database and user configuration**

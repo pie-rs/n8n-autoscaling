@@ -2,7 +2,6 @@ Now includes cloudflared. Configure on cloudflare.com and paste your token in th
 
 for step by step instructions follow this guide: https://www.reddit.com/r/n8n/comments/1l9mi6k/major_update_to_n8nautoscaling_build_step_by_step/
 
-original version without cloudflared is saved in the branches for those who don't want to use it. 
 
 # n8n Autoscaling System
 
@@ -33,10 +32,15 @@ graph TD
 - Redis queue monitoring
 - Docker Compose-based deployment
 - Health checks for all services
+- Auto detects architecture and container runtime.
+- Optional Rclone mounts
+- Backup and restore scripts
+- One script installation
 
 ## Prerequisites
 
-- Docker and Docker Compose.
+- Docker/Podman and Docker/Podman Compose.
+- osx/linux/wsl2 if you want to use the scripts
 - If you are a new user, I recommend either docker desktop or using the docker convenience script for ubuntu.  
 - Set up your cloudflare domain and subdomains.
 
@@ -61,6 +65,8 @@ graph TD
 
 That's it! The setup script handles everything automatically, including Docker/Podman detection.
 
+4. 
+
 ## Setup Wizard Features
 
 The `n8n-setup.sh` script provides:
@@ -68,10 +74,11 @@ The `n8n-setup.sh` script provides:
 - **Automatic Path Resolution**: Converts relative paths to absolute for Docker compatibility
 - **Environment Management**: Create dev/test/production environments
 - **Security**: Generates secure random passwords with optional salt
-- **Optional Features**: Google Drive, Cloudflare tunnel, Tailscale, external networks
+- **Optional Features**: Rclone mounts (any cloud storage), Cloudflare tunnel, Tailscale, external networks
 - **Database Setup**: Automatic PostgreSQL and Redis initialization
 - **Health Checks**: Verifies services are running correctly
 - **Reset Options**: Clean slate functionality if you need to start over
+- **Install systemd** Make your installation persistent
 
 ### Resetting Your Environment
 
@@ -85,6 +92,120 @@ Reset options include:
 - **Everything**: Removes all data, .env file, and Docker resources
 - **Just Data**: Keeps configuration but removes all database/app data  
 - **Just .env**: Removes configuration file (warning: existing data won't be accessible)
+
+## Rclone Cloud Storage Setup
+
+The setup wizard can optionally configure rclone mounts for cloud storage integration. Rclone supports 70+ cloud storage providers including Google Drive, OneDrive, Dropbox, AWS S3, and many more.
+
+### Installing Rclone
+
+## Do this first if you want to use one or more mounts for data and backups
+
+**Download Latest Version:**
+```bash
+# Download and install latest rclone
+curl https://rclone.org/install.sh | sudo bash
+```
+
+**Or install via package manager:**
+```bash
+# Ubuntu/Debian
+sudo apt install rclone
+
+# macOS
+brew install rclone
+
+# CentOS/RHEL/Fedora
+sudo dnf install rclone
+```
+
+### Configure Your Cloud Storage Backend
+
+**1. Run rclone config:**
+```bash
+rclone config
+```
+
+**2. Create a new remote:**
+- Choose `n` for "New remote"
+- Give it a name (e.g., `mydrive`, `mycloud`)
+- Select your storage provider from the list
+- Follow the provider-specific setup instructions
+
+**3. Test your configuration:**
+```bash
+# List files in your remote
+rclone ls yourremotename:
+
+# Test a specific folder
+rclone ls yourremotename:/path/to/folder
+```
+
+### Popular Backend Configuration Links
+
+- **Google Drive**: [https://rclone.org/drive/](https://rclone.org/drive/)
+- **OneDrive**: [https://rclone.org/onedrive/](https://rclone.org/onedrive/)
+- **Dropbox**: [https://rclone.org/dropbox/](https://rclone.org/dropbox/)
+- **AWS S3**: [https://rclone.org/s3/](https://rclone.org/s3/)
+- **All providers**: [https://rclone.org/overview/](https://rclone.org/overview/)
+
+### Setting Up Mounts
+
+**Create mount points:**
+```bash
+# Create directories for mounting
+sudo mkdir -p /mnt/rclone-data /mnt/rclone-backups
+sudo chown $USER:$USER /mnt/rclone-data /mnt/rclone-backups
+```
+
+**Mount your remote:**
+```bash
+# Mount your cloud storage
+rclone mount yourremotename:/data /mnt/rclone-data --daemon
+rclone mount yourremotename:/backups /mnt/rclone-backups --daemon
+
+# Or mount with additional options for better performance - highly recommend reading the docs or asking an LLM for some good settings.
+rclone mount yourremotename:/data /mnt/rclone-data \
+  --vfs-cache-mode writes \
+  --vfs-cache-max-age 1h \
+  --daemon
+```
+
+**Verify mounts:**
+```bash
+# Check if mounted successfully
+df -h | grep rclone
+ls /mnt/rclone-data
+```
+
+### Automatic Mounting on Boot
+
+**Create systemd service for automatic mounting:**
+```bash
+# Create service file
+sudo tee /etc/systemd/system/rclone-mount.service > /dev/null <<EOF
+[Unit]
+Description=Rclone Mount
+After=network.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/rclone mount yourremotename:/data /mnt/rclone-data --vfs-cache-mode writes --vfs-cache-max-age 1h
+ExecStop=/bin/fusermount -u /mnt/rclone-data
+Restart=always
+User=$USER
+Group=$USER
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable and start the service
+sudo systemctl enable rclone-mount.service
+sudo systemctl start rclone-mount.service
+```
+
+**Note**: During the n8n setup wizard, you'll be prompted to configure mount paths. Make sure your rclone mounts are active before running the setup.
 
 ## Configuration
 
@@ -219,12 +340,12 @@ crontab -e
 crontab -l
 ```
 
-### Google Drive Integration
-To enable automatic Google Drive sync:
-1. Uncomment `GDRIVE_BACKUP_MOUNT` in `.env`
-2. Ensure Google Drive is mounted at the specified path
-3. Backups will automatically sync to Google Drive and local copies will be removed
-4. 7-day retention is maintained on Google Drive
+### Rclone Cloud Storage Integration
+To enable automatic cloud storage sync:
+1. Uncomment `RCLONE_BACKUP_MOUNT` in `.env`
+2. Ensure your rclone remote is mounted at the specified path
+3. Backups will automatically sync to cloud storage and local copies will be removed
+4. 7-day retention is maintained on cloud storage
 
 ### Backup Storage & Sizes
 - **PostgreSQL Full**: ~50-500MB (depends on data size)
@@ -233,8 +354,8 @@ To enable automatic Google Drive sync:
 - **n8n Data**: ~10-200MB (depends on workflows and executions)
 
 **Storage Locations:**
-- **Local**: `./backups/{postgres,redis,n8n}/` (if not using Google Drive)
-- **Google Drive**: Configured path with automatic cleanup
+- **Local**: `./backups/{postgres,redis,n8n}/` (if not using rclone cloud storage)
+- **Rclone Cloud Storage**: Configured path with automatic cleanup
 - **Retention**: 7 days for all backup types
 
 ### Recovery with Restore Script
@@ -257,7 +378,7 @@ The system includes an interactive restore script that automates recovery:
 
 **Restore Script Features:**
 - **Interactive Menu**: Choose service and backup point
-- **Multi-Source Discovery**: Finds backups from both local and Google Drive
+- **Multi-Source Discovery**: Finds backups from both local and rclone cloud storage
 - **Safety Backup**: Creates backup of current data before restore
 - **Integrity Validation**: Verifies backup files before restore
 - **Smart Container Management**: Safely stops/starts containers

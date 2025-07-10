@@ -396,36 +396,41 @@ case "$external_network_response" in
         ;;
 esac
 
-# Step 7: Google Drive Integration
+# Step 7: Rclone Mount Integration
 echo ""
-echo "${BLUE}💾 Google Drive Integration${NC}"
-echo "---------------------------"
+echo "${BLUE}☁️  Rclone Mount Integration${NC}"
+echo "----------------------------"
+echo "${BLUE}ℹ️  Rclone supports many cloud storage backends (Google Drive, OneDrive, S3, etc.)${NC}"
 
-echo -n "Do you want to enable Google Drive integration? [y/N]: "
-read -r gdrive_response
-case "$gdrive_response" in
+echo -n "Do you want to enable rclone mount integration? [y/N]: "
+read -r rclone_response
+case "$rclone_response" in
     [Yy]|[Yy][Ee][Ss])
+        echo "${YELLOW}⚠️  Make sure you have rclone installed and configured first!${NC}"
+        echo "${BLUE}ℹ️  See documentation for rclone setup instructions${NC}"
+        echo ""
+        
         while true; do
-            echo -n "Enter Google Drive data mount path [/user/webapps/mounts/gdrive-data]: "
-            read -r GDRIVE_DATA_MOUNT
-            if [ -z "$GDRIVE_DATA_MOUNT" ]; then
-                GDRIVE_DATA_MOUNT="/user/webapps/mounts/gdrive-data"
+            echo -n "Enter rclone data mount path [/mnt/rclone-data]: "
+            read -r RCLONE_DATA_MOUNT
+            if [ -z "$RCLONE_DATA_MOUNT" ]; then
+                RCLONE_DATA_MOUNT="/mnt/rclone-data"
             fi
             
-            if [ -d "$GDRIVE_DATA_MOUNT" ]; then
+            if [ -d "$RCLONE_DATA_MOUNT" ]; then
                 echo "${GREEN}✅ Data mount directory exists${NC}"
                 break
             else
-                echo "${RED}❌ Directory does not exist: $GDRIVE_DATA_MOUNT${NC}"
+                echo "${RED}❌ Directory does not exist: $RCLONE_DATA_MOUNT${NC}"
                 echo -n "Do you want to create it? [y/N]: "
                 read -r create_dir_response
                 case "$create_dir_response" in
                     [Yy]|[Yy][Ee][Ss])
-                        mkdir -p "$GDRIVE_DATA_MOUNT" && echo "${GREEN}✅ Created directory${NC}" && break
+                        mkdir -p "$RCLONE_DATA_MOUNT" && echo "${GREEN}✅ Created directory${NC}" && break
                         ;;
                     *)
-                        echo "${YELLOW}⚠️  Skipping Google Drive integration${NC}"
-                        GDRIVE_ENABLED=false
+                        echo "${YELLOW}⚠️  Skipping rclone integration${NC}"
+                        RCLONE_ENABLED=false
                         break 2  # Break out of both loops
                         ;;
                 esac
@@ -433,49 +438,50 @@ case "$gdrive_response" in
         done
         
         # Only continue with backup mount if data mount was successful
-        if [ "$GDRIVE_ENABLED" != "false" ]; then
+        if [ "$RCLONE_ENABLED" != "false" ]; then
         while true; do
-            echo -n "Enter Google Drive backup mount path [/user/webapps/mounts/gdrive-backups]: "
-            read -r GDRIVE_BACKUP_MOUNT
-            if [ -z "$GDRIVE_BACKUP_MOUNT" ]; then
-                GDRIVE_BACKUP_MOUNT="/user/webapps/mounts/gdrive-backups"
+            echo -n "Enter rclone backup mount path [/mnt/rclone-backups]: "
+            read -r RCLONE_BACKUP_MOUNT
+            if [ -z "$RCLONE_BACKUP_MOUNT" ]; then
+                RCLONE_BACKUP_MOUNT="/mnt/rclone-backups"
             fi
             
-            if [ -d "$GDRIVE_BACKUP_MOUNT" ]; then
+            if [ -d "$RCLONE_BACKUP_MOUNT" ]; then
                 echo "${GREEN}✅ Backup mount directory exists${NC}"
                 break
             else
-                echo "${RED}❌ Directory does not exist: $GDRIVE_BACKUP_MOUNT${NC}"
+                echo "${RED}❌ Directory does not exist: $RCLONE_BACKUP_MOUNT${NC}"
                 echo -n "Do you want to create it? [y/N]: "
                 read -r create_backup_dir_response
                 case "$create_backup_dir_response" in
                     [Yy]|[Yy][Ee][Ss])
-                        mkdir -p "$GDRIVE_BACKUP_MOUNT" && echo "${GREEN}✅ Created directory${NC}" && break
+                        mkdir -p "$RCLONE_BACKUP_MOUNT" && echo "${GREEN}✅ Created directory${NC}" && break
                         ;;
                     *)
-                        echo "${YELLOW}⚠️  Skipping Google Drive integration${NC}"
-                        GDRIVE_ENABLED=false
+                        echo "${YELLOW}⚠️  Skipping rclone integration${NC}"
+                        RCLONE_ENABLED=false
                         break 2  # Break out of both loops
                         ;;
                 esac
             fi
         done
         
-        # Only configure Google Drive if both mounts were successful
-        if [ "$GDRIVE_ENABLED" != "false" ]; then
-            GDRIVE_ENABLED=true
+        # Only configure rclone if both mounts were successful
+        if [ "$RCLONE_ENABLED" != "false" ]; then
+            RCLONE_ENABLED=true
             
-            # Uncomment and update Google Drive settings
-            sed -i.bak "s|^#GDRIVE_DATA_MOUNT=.*|GDRIVE_DATA_MOUNT=$GDRIVE_DATA_MOUNT|" .env
-            sed -i.bak "s|^#GDRIVE_BACKUP_MOUNT=.*|GDRIVE_BACKUP_MOUNT=$GDRIVE_BACKUP_MOUNT|" .env
+            # Uncomment and update rclone settings
+            sed -i.bak "s|^#RCLONE_DATA_MOUNT=.*|RCLONE_DATA_MOUNT=$RCLONE_DATA_MOUNT|" .env
+            sed -i.bak "s|^#RCLONE_BACKUP_MOUNT=.*|RCLONE_BACKUP_MOUNT=$RCLONE_BACKUP_MOUNT|" .env
             
-            echo "${GREEN}✅ Google Drive integration enabled${NC}"
+            echo "${GREEN}✅ Rclone integration enabled${NC}"
+            echo "${BLUE}ℹ️  Make sure to mount your rclone remote before starting services${NC}"
         fi
         fi
         ;;
     *)
-        echo "${BLUE}ℹ️  Google Drive integration disabled${NC}"
-        GDRIVE_ENABLED=false
+        echo "${BLUE}ℹ️  Rclone integration disabled${NC}"
+        RCLONE_ENABLED=false
         ;;
 esac
 
@@ -777,11 +783,11 @@ case "$test_response" in
         echo "${YELLOW}🔄 Starting all services...${NC}"
         
         # Start all services
-        if [ "$GDRIVE_ENABLED" = "true" ]; then
+        if [ "$RCLONE_ENABLED" = "true" ]; then
             if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-                docker compose -f docker-compose.yml -f docker-compose.gdrive.yml up -d
+                docker compose -f docker-compose.yml -f docker-compose.rclone.yml up -d
             else
-                podman compose -f docker-compose.yml -f docker-compose.gdrive.yml up -d
+                podman compose -f docker-compose.yml -f docker-compose.rclone.yml up -d
             fi
         else
             if [ "$CONTAINER_RUNTIME" = "docker" ]; then
@@ -877,7 +883,7 @@ echo "   User: n8n_${ENVIRONMENT}_user"
 echo "   Timezone: $TIMEZONE (PostgreSQL uses UTC)"
 echo "   Container Runtime: $CONTAINER_RUNTIME"
 echo "   External Network: $([ -n "$EXTERNAL_NETWORK_NAME" ] && echo "$EXTERNAL_NETWORK_NAME" || echo "Disabled")"
-echo "   Google Drive: $([ "$GDRIVE_ENABLED" = "true" ] && echo "Enabled" || echo "Disabled")"
+echo "   Rclone Mount: $([ "$RCLONE_ENABLED" = "true" ] && echo "Enabled" || echo "Disabled")"
 echo "   Cloudflare Tunnel: $([ -n "$CLOUDFLARE_TOKEN" ] && echo "Configured" || echo "Not configured")"
 echo "   Tailscale: $([ -n "$TAILSCALE_IP" ] && echo "$TAILSCALE_IP" || echo "Not configured")"
 echo "   Main URL: $N8N_MAIN_URL"

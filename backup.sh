@@ -30,7 +30,7 @@ POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
 POSTGRES_ADMIN_USER=${POSTGRES_ADMIN_USER:-postgres}
 POSTGRES_ADMIN_PASSWORD=${POSTGRES_ADMIN_PASSWORD:-}
 REDIS_PASSWORD=${REDIS_PASSWORD:-}
-GDRIVE_BACKUP_MOUNT=${GDRIVE_BACKUP_MOUNT:-}
+RCLONE_BACKUP_MOUNT=${RCLONE_BACKUP_MOUNT:-}
 
 # Create backup directories
 mkdir -p "$BACKUPS_DIR"/{postgres,redis,n8n}
@@ -209,50 +209,50 @@ backup_n8n() {
     fi
 }
 
-# Function to sync to Google Drive and cleanup
-sync_to_gdrive() {
-    if [ -z "$GDRIVE_BACKUP_MOUNT" ]; then
+# Function to sync to rclone cloud storage and cleanup
+sync_to_rclone() {
+    if [ -z "$RCLONE_BACKUP_MOUNT" ]; then
         return 0  # Skip if not configured
     fi
     
-    echo -e "${YELLOW}📋 Syncing backups to Google Drive...${NC}"
+    echo -e "${YELLOW}📋 Syncing backups to rclone cloud storage...${NC}"
     
-    # Check if Google Drive backup mount exists
-    if [ ! -d "$GDRIVE_BACKUP_MOUNT" ]; then
-        echo -e "${RED}❌ Google Drive backup mount not found: $GDRIVE_BACKUP_MOUNT${NC}"
+    # Check if rclone backup mount exists
+    if [ ! -d "$RCLONE_BACKUP_MOUNT" ]; then
+        echo -e "${RED}❌ Rclone cloud storage backup mount not found: $RCLONE_BACKUP_MOUNT${NC}"
         return 1
     fi
     
-    # Create Google Drive backup structure
-    mkdir -p "$GDRIVE_BACKUP_MOUNT"/{postgres,redis,n8n}
+    # Create rclone backup structure
+    mkdir -p "$RCLONE_BACKUP_MOUNT"/{postgres,redis,n8n}
     
     # Sync each backup type
     for backup_type in postgres redis n8n; do
         if [ -d "$BACKUPS_DIR/$backup_type" ]; then
             echo "  • Syncing $backup_type backups..."
             
-            # Copy new files to Google Drive
-            cp "$BACKUPS_DIR/$backup_type"/* "$GDRIVE_BACKUP_MOUNT/$backup_type/" 2>/dev/null || true
+            # Copy new files to rclone cloud storage
+            cp "$BACKUPS_DIR/$backup_type"/* "$RCLONE_BACKUP_MOUNT/$backup_type/" 2>/dev/null || true
             
             echo -e "    ✅ $backup_type backups synced"
         fi
     done
     
-    # Clean up old backups from Google Drive (>7 days)
-    echo "  • Cleaning up old Google Drive backups (>7 days)..."
-    find "$GDRIVE_BACKUP_MOUNT" -name "*.gz" -type f -mtime +7 -delete 2>/dev/null || true
+    # Clean up old backups from rclone cloud storage (>7 days)
+    echo "  • Cleaning up old cloud storage backups (>7 days)..."
+    find "$RCLONE_BACKUP_MOUNT" -name "*.gz" -type f -mtime +7 -delete 2>/dev/null || true
     
     # Remove local backups after successful sync
     echo "  • Removing local backups after sync..."
     rm -rf "$BACKUPS_DIR"/{postgres,redis,n8n}/*
     
-    echo -e "  ✅ Google Drive sync completed and local backups cleared"
+    echo -e "  ✅ Rclone cloud storage sync completed and local backups cleared"
 }
 
-# Function to cleanup old local backups (only if not using Google Drive)
+# Function to cleanup old local backups (only if not using rclone cloud storage)
 cleanup_local_backups() {
-    if [ -n "$GDRIVE_BACKUP_MOUNT" ]; then
-        return 0  # Skip local cleanup if using Google Drive
+    if [ -n "$RCLONE_BACKUP_MOUNT" ]; then
+        return 0  # Skip local cleanup if using rclone cloud storage
     fi
     
     echo -e "${YELLOW}🧹 Cleaning up old local backups (>7 days)...${NC}"
@@ -270,12 +270,12 @@ cleanup_local_backups() {
 show_backup_summary() {
     echo -e "${YELLOW}💾 Backup summary:${NC}"
     
-    if [ -n "$GDRIVE_BACKUP_MOUNT" ] && [ -d "$GDRIVE_BACKUP_MOUNT" ]; then
-        GDRIVE_SIZE=$(du -sh "$GDRIVE_BACKUP_MOUNT" 2>/dev/null | cut -f1)
-        GDRIVE_COUNT=$(find "$GDRIVE_BACKUP_MOUNT" -name "*.gz" -type f | wc -l)
-        echo "  • Google Drive backup size: $GDRIVE_SIZE"
-        echo "  • Google Drive backup files: $GDRIVE_COUNT"
-        echo "  • Google Drive path: $GDRIVE_BACKUP_MOUNT"
+    if [ -n "$RCLONE_BACKUP_MOUNT" ] && [ -d "$RCLONE_BACKUP_MOUNT" ]; then
+        RCLONE_SIZE=$(du -sh "$RCLONE_BACKUP_MOUNT" 2>/dev/null | cut -f1)
+        RCLONE_COUNT=$(find "$RCLONE_BACKUP_MOUNT" -name "*.gz" -type f | wc -l)
+        echo "  • Rclone cloud storage backup size: $RCLONE_SIZE"
+        echo "  • Rclone cloud storage backup files: $RCLONE_COUNT"
+        echo "  • Rclone cloud storage path: $RCLONE_BACKUP_MOUNT"
     elif [ -d "$BACKUPS_DIR" ]; then
         BACKUP_SIZE=$(du -sh "$BACKUPS_DIR" 2>/dev/null | cut -f1)
         BACKUP_COUNT=$(find "$BACKUPS_DIR" -name "*.gz" -type f | wc -l)
@@ -302,9 +302,9 @@ main() {
         success=false
     fi
     
-    # Sync to Google Drive if configured, otherwise cleanup local backups
-    if [ -n "$GDRIVE_BACKUP_MOUNT" ]; then
-        if ! sync_to_gdrive; then
+    # Sync to rclone cloud storage if configured, otherwise cleanup local backups
+    if [ -n "$RCLONE_BACKUP_MOUNT" ]; then
+        if ! sync_to_rclone; then
             success=false
         fi
     else
@@ -335,10 +335,10 @@ main() {
     echo "  # 30 * * * * $SCRIPT_DIR/backup.sh redis >/dev/null 2>&1               # Redis hourly"
     echo "  # 45 * * * * $SCRIPT_DIR/backup.sh n8n >/dev/null 2>&1                 # n8n data hourly"
     echo ""
-    if [ -n "$GDRIVE_BACKUP_MOUNT" ]; then
-        echo "Google Drive sync is automatically included when GDRIVE_BACKUP_MOUNT is set"
+    if [ -n "$RCLONE_BACKUP_MOUNT" ]; then
+        echo "Rclone cloud storage sync is automatically included when RCLONE_BACKUP_MOUNT is set"
     else
-        echo "To enable Google Drive sync, set GDRIVE_BACKUP_MOUNT in .env"
+        echo "To enable rclone cloud storage sync, set RCLONE_BACKUP_MOUNT in .env"
     fi
 }
 

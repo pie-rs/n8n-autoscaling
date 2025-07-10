@@ -1,0 +1,23 @@
+# Rclone cloud storage mount override
+# Use this file when you want to enable rclone cloud storage integration
+# Supports any rclone backend: Google Drive, OneDrive, S3, Dropbox, etc.
+# 
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.rclone.yml up -d
+#
+# Make sure to:
+# 1. Install and configure rclone with your preferred backend
+# 2. Set RCLONE_DATA_MOUNT and RCLONE_BACKUP_MOUNT in your .env file  
+# 3. Mount your rclone remote before starting services
+# 4. Ensure the mount points exist and are accessible
+
+services:
+  n8n:
+    volumes:
+      - ${RCLONE_DATA_MOUNT}:/rclone-data:rw
+      - ${RCLONE_BACKUP_MOUNT}:/rclone-backups:rw
+
+  n8n-worker:
+    volumes:
+      - ${RCLONE_DATA_MOUNT}:/rclone-data:rw
+      - ${RCLONE_BACKUP_MOUNT}:/rclone-backups:rw

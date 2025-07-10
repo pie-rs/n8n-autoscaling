@@ -23,7 +23,7 @@ fi
 
 # Set default values
 BACKUPS_DIR=${BACKUPS_DIR:-./backups}
-GDRIVE_BACKUP_MOUNT=${GDRIVE_BACKUP_MOUNT:-}
+RCLONE_BACKUP_MOUNT=${RCLONE_BACKUP_MOUNT:-}
 COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-n8n-autoscaling}
 ENVIRONMENT=${ENVIRONMENT:-dev}
 POSTGRES_DB=${POSTGRES_DB:-n8n_${ENVIRONMENT}}
@@ -59,15 +59,15 @@ find_backups() {
         done < <(find "$BACKUPS_DIR/$service" -name "*.gz" -print0 2>/dev/null)
     fi
     
-    # Scan Google Drive backups
-    if [ -n "$GDRIVE_BACKUP_MOUNT" ] && [ -d "$GDRIVE_BACKUP_MOUNT/$service" ]; then
+    # Scan rclone cloud storage backups
+    if [ -n "$RCLONE_BACKUP_MOUNT" ] && [ -d "$RCLONE_BACKUP_MOUNT/$service" ]; then
         while IFS= read -r -d '' file; do
             local basename=$(basename "$file")
             local timestamp=$(echo "$basename" | grep -o '[0-9]\{8\}_[0-9]\{6\}')
             if [ -n "$timestamp" ]; then
-                backups["$timestamp|gdrive"]="$file"
+                backups["$timestamp|rclone"]="$file"
             fi
-        done < <(find "$GDRIVE_BACKUP_MOUNT/$service" -name "*.gz" -print0 2>/dev/null)
+        done < <(find "$RCLONE_BACKUP_MOUNT/$service" -name "*.gz" -print0 2>/dev/null)
     fi
     
     # Return the associative array as key-value pairs
@@ -121,8 +121,8 @@ display_backups() {
                                date -d "${year}-${month}-${day} ${hour}:${min}:${sec}" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || \
                                echo "$timestamp")
         
-        if [ "$source" = "gdrive" ]; then
-            echo -e "${MAGENTA}$i)${NC} $date_formatted ${YELLOW}[GDrive]${NC}$size - $(basename "$filepath")"
+        if [ "$source" = "rclone" ]; then
+            echo -e "${MAGENTA}$i)${NC} $date_formatted ${YELLOW}[Cloud]${NC}$size - $(basename "$filepath")"
         else
             echo -e "${MAGENTA}$i)${NC} $date_formatted ${BLUE}[Local]${NC}$size - $(basename "$filepath")"
         fi
@@ -536,7 +536,7 @@ case "${1:-}" in
         echo "  (no args)     Interactive restore mode"
         echo ""
         echo "This script provides point-in-time recovery for n8n-autoscaling."
-        echo "It automatically finds backups from both local and Google Drive sources."
+        echo "It automatically finds backups from both local and rclone cloud storage sources."
         echo ""
         echo "Safety features:"
         echo "  • Creates safety backup before restore"

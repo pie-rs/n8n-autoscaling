@@ -20,15 +20,16 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
     source "$SCRIPT_DIR/.env"
 fi
 
-# Ask about Google Drive support
-GDRIVE_ENABLED="no"
+# Ask about rclone cloud storage support
+RCLONE_ENABLED="no"
 echo ""
-read -p "Enable Google Drive support? (y/N): " -r
+read -p "Enable rclone cloud storage support? (y/N): " -r
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    GDRIVE_ENABLED="yes"
-    echo -e "${GREEN}✅ Google Drive support will be enabled${NC}"
+    RCLONE_ENABLED="yes"
+    echo -e "${GREEN}✅ Rclone cloud storage support will be enabled${NC}"
+    echo -e "${YELLOW}⚠️  Make sure your rclone mounts are active before starting the service${NC}"
 else
-    echo -e "${YELLOW}⚠️  Google Drive support disabled${NC}"
+    echo -e "${YELLOW}⚠️  Rclone cloud storage support disabled${NC}"
 fi
 
 # Detect container runtime
@@ -70,11 +71,11 @@ fi
 # Service name
 SERVICE_NAME="n8n-autoscaling"
 
-# Build compose command with optional Google Drive and Podman autoupdate
+# Build compose command with optional rclone and Podman autoupdate
 COMPOSE_FILES="-f docker-compose.yml"
 
-if [ "$GDRIVE_ENABLED" = "yes" ]; then
-    COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.gdrive.yml"
+if [ "$RCLONE_ENABLED" = "yes" ]; then
+    COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.rclone.yml"
 fi
 
 # Add Podman autoupdate override if using Podman and autoupdate is enabled
