@@ -710,11 +710,20 @@ case "$db_response" in
     [Yy]|[Yy][Ee][Ss])
         echo "${YELLOW}🔄 Starting database services...${NC}"
         
+        # Build compose file list for database startup
+        COMPOSE_FILES="-f docker-compose.yml"
+        if [ "$RCLONE_ENABLED" = "true" ]; then
+            COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.rclone.yml"
+        fi
+        if [ -n "$CLOUDFLARE_TOKEN" ] && [ "$CLOUDFLARE_TOKEN" != "your_tunnel_token_here" ]; then
+            COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.cloudflare.yml"
+        fi
+        
         # Start PostgreSQL and Redis
         if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-            docker compose up -d postgres redis
+            docker compose $COMPOSE_FILES up -d postgres redis
         else
-            podman compose up -d postgres redis
+            podman compose $COMPOSE_FILES up -d postgres redis
         fi
         
         echo "${YELLOW}⏳ Waiting for database to be ready...${NC}"
@@ -741,9 +750,9 @@ case "$db_response" in
                     echo "${YELLOW}🔄 Recreating database...${NC}"
                     # Run database initialization
                     if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-                        docker compose up --force-recreate postgres-init
+                        docker compose $COMPOSE_FILES up --force-recreate postgres-init
                     else
-                        podman compose up --force-recreate postgres-init
+                        podman compose $COMPOSE_FILES up --force-recreate postgres-init
                     fi
                     ;;
                 *)
@@ -754,9 +763,9 @@ case "$db_response" in
             echo "${YELLOW}🔄 Creating database...${NC}"
             # Run database initialization
             if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-                docker compose up postgres-init
+                docker compose $COMPOSE_FILES up postgres-init
             else
-                podman compose up postgres-init
+                podman compose $COMPOSE_FILES up postgres-init
             fi
         fi
         
@@ -782,19 +791,29 @@ case "$test_response" in
     [Yy]|[Yy][Ee][Ss])
         echo "${YELLOW}🔄 Starting all services...${NC}"
         
-        # Start all services
+        # Build compose file list based on enabled features
+        COMPOSE_FILES="-f docker-compose.yml"
+        
+        # Add rclone override if enabled
         if [ "$RCLONE_ENABLED" = "true" ]; then
-            if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-                docker compose -f docker-compose.yml -f docker-compose.rclone.yml up -d
-            else
-                podman compose -f docker-compose.yml -f docker-compose.rclone.yml up -d
-            fi
+            COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.rclone.yml"
+            echo "${BLUE}ℹ️  Including rclone cloud storage support${NC}"
+        fi
+        
+        # Add Cloudflare override if tunnel token is configured
+        if [ -n "$CLOUDFLARE_TOKEN" ] && [ "$CLOUDFLARE_TOKEN" != "your_tunnel_token_here" ]; then
+            COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.cloudflare.yml"
+            echo "${BLUE}ℹ️  Using Cloudflare tunnels (Traefik disabled for security)${NC}"
         else
-            if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-                docker compose up -d
-            else
-                podman compose up -d
-            fi
+            echo "${YELLOW}⚠️  Using Traefik reverse proxy (consider Cloudflare tunnels for better security)${NC}"
+        fi
+        
+        # Start all services
+        echo "${BLUE}ℹ️  Starting with: $COMPOSE_FILES${NC}"
+        if [ "$CONTAINER_RUNTIME" = "docker" ]; then
+            docker compose $COMPOSE_FILES up -d
+        else
+            podman compose $COMPOSE_FILES up -d
         fi
         
         echo "${YELLOW}⏳ Waiting for services to start...${NC}"
@@ -805,24 +824,24 @@ case "$test_response" in
         
         # Check if containers are running
         if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-            RUNNING_CONTAINERS=$(docker compose ps --services --filter "status=running" 2>/dev/null | wc -l | tr -d ' ')
-            TOTAL_CONTAINERS=$(docker compose ps --services 2>/dev/null | wc -l | tr -d ' ')
+            RUNNING_CONTAINERS=$(docker compose $COMPOSE_FILES ps --services --filter "status=running" 2>/dev/null | wc -l | tr -d ' ')
+            TOTAL_CONTAINERS=$(docker compose $COMPOSE_FILES ps --services 2>/dev/null | wc -l | tr -d ' ')
         else
-            RUNNING_CONTAINERS=$(podman compose ps --services --filter "status=running" 2>/dev/null | wc -l | tr -d ' ')
-            TOTAL_CONTAINERS=$(podman compose ps --services 2>/dev/null | wc -l | tr -d ' ')
+            RUNNING_CONTAINERS=$(podman compose $COMPOSE_FILES ps --services --filter "status=running" 2>/dev/null | wc -l | tr -d ' ')
+            TOTAL_CONTAINERS=$(podman compose $COMPOSE_FILES ps --services 2>/dev/null | wc -l | tr -d ' ')
         fi
         
         echo "${BLUE}ℹ️  Running containers: $RUNNING_CONTAINERS/$TOTAL_CONTAINERS${NC}"
         
         # Check Redis connectivity
         if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-            if docker compose exec -T redis redis-cli -a "${REDIS_PASSWORD:-}" ping 2>/dev/null | grep -q "PONG"; then
+            if docker compose $COMPOSE_FILES exec -T redis redis-cli -a "${REDIS_PASSWORD:-}" ping 2>/dev/null | grep -q "PONG"; then
                 echo "${GREEN}✅ Redis is responding${NC}"
             else
                 echo "${RED}❌ Redis connection failed${NC}"
             fi
         else
-            if podman compose exec -T redis redis-cli -a "${REDIS_PASSWORD:-}" ping 2>/dev/null | grep -q "PONG"; then
+            if podman compose $COMPOSE_FILES exec -T redis redis-cli -a "${REDIS_PASSWORD:-}" ping 2>/dev/null | grep -q "PONG"; then
                 echo "${GREEN}✅ Redis is responding${NC}"
             else
                 echo "${RED}❌ Redis connection failed${NC}"
@@ -831,13 +850,13 @@ case "$test_response" in
         
         # Check PostgreSQL connectivity
         if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-            if docker compose exec -T postgres pg_isready -U "${POSTGRES_ADMIN_USER:-postgres}" 2>/dev/null; then
+            if docker compose $COMPOSE_FILES exec -T postgres pg_isready -U "${POSTGRES_ADMIN_USER:-postgres}" 2>/dev/null; then
                 echo "${GREEN}✅ PostgreSQL is responding${NC}"
             else
                 echo "${RED}❌ PostgreSQL connection failed${NC}"
             fi
         else
-            if podman compose exec -T postgres pg_isready -U "${POSTGRES_ADMIN_USER:-postgres}" 2>/dev/null; then
+            if podman compose $COMPOSE_FILES exec -T postgres pg_isready -U "${POSTGRES_ADMIN_USER:-postgres}" 2>/dev/null; then
                 echo "${GREEN}✅ PostgreSQL is responding${NC}"
             else
                 echo "${RED}❌ PostgreSQL connection failed${NC}"

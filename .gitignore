@@ -121,3 +121,6 @@ security-scan-*
 # Local development overrides
 docker-compose.local.yml
 local.env
+
+# Cloudflare tunnel configuration (contains tunnel ID)
+cloudflared-config.yml

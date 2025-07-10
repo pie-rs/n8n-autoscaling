@@ -71,17 +71,29 @@ fi
 # Service name
 SERVICE_NAME="n8n-autoscaling"
 
-# Build compose command with optional rclone and Podman autoupdate
+# Build compose command with smart architecture selection
 COMPOSE_FILES="-f docker-compose.yml"
 
+# Add rclone override if enabled
 if [ "$RCLONE_ENABLED" = "yes" ]; then
     COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.rclone.yml"
+    echo -e "${GREEN}✅ Including rclone cloud storage support${NC}"
+fi
+
+# Add Cloudflare override if tunnel token is configured (removes Traefik)
+if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ] && [ "${CLOUDFLARE_TUNNEL_TOKEN:-}" != "your_tunnel_token_here" ]; then
+    COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.cloudflare.yml"
+    echo -e "${GREEN}✅ Using Cloudflare tunnels (Traefik disabled for security)${NC}"
+else
+    echo -e "${YELLOW}⚠️  Using Traefik reverse proxy (consider Cloudflare tunnels for better security)${NC}"
 fi
 
 # Add Podman autoupdate override if using Podman and autoupdate is enabled
 if [ "$CONTAINER_RUNTIME" = "podman" ] && [ "${PODMAN_AUTOUPDATE:-registry}" != "no" ]; then
     COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.podman-autoupdate.yml"
 fi
+
+echo -e "${BLUE}ℹ️  Systemd service will use: $COMPOSE_FILES${NC}"
 
 # Create the service file
 cat > "${SERVICE_NAME}.service" << EOF
