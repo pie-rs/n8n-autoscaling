@@ -104,6 +104,23 @@ The system includes:
 - Docker health checks for all services
 - Detailed logging from autoscaler
 
+## Automatic Updates
+
+### For Docker Users
+To enable automatic container updates, use [Watchtower](https://containrrr.dev/watchtower/):
+
+```bash
+docker run -d \
+  --name watchtower \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  containrrr/watchtower \
+  --schedule "0 0 2 * * *" \
+  --cleanup
+```
+
+### For Podman Users
+Podman auto-update is automatically configured when using the systemd service generator (`./generate-systemd.sh`). The system will check for updates daily and restart containers with newer images.
+
 ## Troubleshooting
 
 - Check container logs: `docker-compose logs [service]`

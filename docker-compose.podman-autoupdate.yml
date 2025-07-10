@@ -1,0 +1,40 @@
+# Podman auto-update override
+# This file adds auto-update labels to services when using Podman
+# Use with: podman-compose -f docker-compose.yml -f docker-compose.podman-autoupdate.yml up -d
+
+services:
+  cloudflared:
+    labels:
+      - "io.containers.autoupdate=${PODMAN_AUTOUPDATE:-registry}"
+
+  traefik:
+    labels:
+      - "io.containers.autoupdate=${PODMAN_AUTOUPDATE:-registry}"
+
+  redis:
+    labels:
+      - "io.containers.autoupdate=${PODMAN_AUTOUPDATE:-registry}"
+
+  postgres:
+    labels:
+      - "io.containers.autoupdate=${PODMAN_AUTOUPDATE:-registry}"
+
+  n8n:
+    labels:
+      - "io.containers.autoupdate=${PODMAN_AUTOUPDATE:-registry}"
+
+  n8n-webhook:
+    labels:
+      - "io.containers.autoupdate=${PODMAN_AUTOUPDATE:-registry}"
+
+  n8n-worker:
+    labels:
+      - "io.containers.autoupdate=${PODMAN_AUTOUPDATE:-registry}"
+
+  redis-monitor:
+    labels:
+      - "io.containers.autoupdate=${PODMAN_AUTOUPDATE:-registry}"
+
+  n8n-autoscaler:
+    labels:
+      - "io.containers.autoupdate=${PODMAN_AUTOUPDATE:-registry}"

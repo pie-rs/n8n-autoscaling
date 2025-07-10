@@ -2,6 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+See @README.md for project overview
+
+# architecture docmentation
+- @~/docs/architecture.md
+
+# project specifications
+- @~/docs/project.spec.md
+
+# Individual Preferences
+- @~/.claude/CLAUDE.md
+
+
+
 ## Project Overview
 
 This is a Docker-based autoscaling solution for n8n workflow automation platform that dynamically scales worker containers based on Redis queue length without requiring Kubernetes or other complex orchestration platforms.
@@ -52,6 +65,26 @@ docker compose restart [service-name]
 
 # Stop all services
 docker compose down
+```
+
+### Systemd Service Management
+```bash
+# Generate systemd service files
+./generate-systemd.sh
+
+# User service commands (if installed as user)
+systemctl --user enable n8n-autoscaling.service
+systemctl --user start n8n-autoscaling.service
+systemctl --user status n8n-autoscaling.service
+systemctl --user stop n8n-autoscaling.service
+journalctl --user -u n8n-autoscaling -f
+
+# System service commands (if installed as root)
+sudo systemctl enable n8n-autoscaling.service
+sudo systemctl start n8n-autoscaling.service
+sudo systemctl status n8n-autoscaling.service
+sudo systemctl stop n8n-autoscaling.service
+journalctl -u n8n-autoscaling -f
 ```
 
 ### Debugging Commands
@@ -216,10 +249,24 @@ docker compose up -d
     - Disabled by default for simpler setup
     - Easy to enable when needed
 
+### Completed Production Enhancements ✅ (Latest)
+
+11. **✅ Systemd Integration**: Complete systemd service generator
+    - Automatic Docker/Podman detection
+    - User vs system service installation
+    - Podman auto-update integration with labels
+    - Lingering setup for rootless Podman
+    - Google Drive integration prompt
+    - No update timers (simplified approach)
+
+12. **✅ Automatic Updates**: Different strategies by runtime
+    - **Docker**: Watchtower integration documented in README
+    - **Podman**: Built-in auto-update via systemd timer and container labels
+    - Podman auto-update configured automatically via `./generate-systemd.sh`
+
 ### Remaining Production Tasks
 
-1. **Systemd Integration**: Script to generate systemd service files
-2. **Log Rotation**: Daily rotation, compression, 7-day retention
-3. **Backup Strategy**: Automated backups with retention policies
-4. **Redis 8 Upgrade**: Upgrade to Redis 8 with mandatory password
-5. **Performance Tuning**: Add extra performance variables for each app
+1. **Log Rotation**: Daily rotation, compression, 7-day retention
+2. **Backup Strategy**: Automated backups with retention policies
+3. **Redis 8 Upgrade**: Upgrade to Redis 8 with mandatory password
+4. **Performance Tuning**: Add extra performance variables for each app
