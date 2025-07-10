@@ -1,0 +1,18 @@
+# Google Drive mount override
+# Use this file when you want to enable Google Drive integration
+# 
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.gdrive.yml up -d
+#
+# Make sure to:
+# 1. Set GDRIVE_DATA_MOUNT in your .env file
+# 2. Ensure the mount point exists and is accessible
+
+services:
+  n8n:
+    volumes:
+      - ${GDRIVE_DATA_MOUNT}:/gdrive:rw
+
+  n8n-worker:
+    volumes:
+      - ${GDRIVE_DATA_MOUNT}:/gdrive:rw

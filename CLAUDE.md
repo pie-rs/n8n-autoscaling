@@ -17,8 +17,17 @@ docker network create shark
 cp .env.example .env
 # Then edit .env with your values
 
+# Create data directories
+./setup-dirs.sh
+
 # Start all services
 docker compose up -d
+
+# Optional: Enable Google Drive integration
+# 1. Uncomment GDRIVE_DATA_MOUNT in .env
+# 2. Ensure mount point exists and is accessible
+# 3. Start with Google Drive support:
+docker compose -f docker-compose.yml -f docker-compose.gdrive.yml up -d
 ```
 
 ### Development Commands
@@ -98,6 +107,8 @@ Critical environment variables in `.env`:
 4. **Queue Monitoring**: Check both `bull:jobs:wait` and `bull:jobs:waiting` (BullMQ v4+)
 5. **Scaling Cooldown**: Prevents thrashing with 3-minute default between actions
 6. **Tailscale Support**: PostgreSQL can bind to Tailscale IP for secure access
+7. **Google Drive Integration**: Optional mounting via override file
+8. **Data Organization**: Environment variable-driven data directory structure
 
 ## Testing Autoscaling
 ```bash
@@ -110,12 +121,36 @@ docker compose logs -f n8n-autoscaler
 docker compose ps | grep n8n-worker
 ```
 
+## Google Drive Integration
+
+The system supports optional Google Drive mounting for data storage:
+
+### Enable Google Drive
+```bash
+# 1. Edit .env and uncomment the Google Drive variables:
+# GDRIVE_DATA_MOUNT=/user/webapps/mounts/gdrive-data
+# GDRIVE_BACKUP_MOUNT=/user/webapps/mounts/gdrive-backups
+
+# 2. Create directories and start with Google Drive support
+./setup-dirs.sh
+docker compose -f docker-compose.yml -f docker-compose.gdrive.yml up -d
+```
+
+### Disable Google Drive
+```bash
+# Use standard compose file (default)
+docker compose up -d
+```
+
+**Note**: Only `n8n` and `n8n-worker` services get Google Drive access. The `n8n-webhook` service does not need it.
+
 ## Common Issues
 
 1. **Workers not scaling**: Check Redis connection and queue name format
 2. **Webhooks not working**: Ensure using Cloudflare URL, not localhost
 3. **Scaling too aggressive**: Adjust thresholds and cooldown in .env
 4. **Container permissions**: n8n services run as root:root by design
+5. **Google Drive not mounting**: Ensure directories exist and GDRIVE variables are uncommented in .env
 
 ## Production Requirements (from project.spec.md)
 
@@ -156,11 +191,23 @@ docker compose ps | grep n8n-worker
 - **Monitor**: Python 3.12 with dedicated non-root user
 - **All services**: Multi-architecture ready via standard `docker compose build`
 
+### Completed Production Enhancements ✅ (Updated)
+
+6. **✅ Data Organization**: Configurable data locations via environment variables
+   - `./Data/Postgres`, `./Data/Redis`, `./Data/n8n`, etc.
+   - `./Logs` for application logs
+   - `./backups` for backup storage
+7. **✅ Google Drive Integration**: Optional mount system
+   - Conditional mounting only when configured
+   - Override file `docker-compose.gdrive.yml` for optional integration
+   - Only n8n and n8n-worker services get Google Drive access (not webhook)
+8. **✅ Logging Configuration**: Structured logging with rotation limits
+   - Configurable log driver, max size, and file count
+   - Applied to all services uniformly
+
 ### Remaining Production Tasks
 
-1. **Data Organization**: Define structured data locations (./Data/*, ./Logs, ./backups)
-2. **Google Drive Integration**: Mount at `/user/webapps/mounts/gdrive-data`
-3. **Podman Compatibility**: Support both root and rootless Podman
-4. **Systemd Integration**: Script to generate systemd service files
-5. **Log Rotation**: Daily rotation, compression, 7-day retention
-6. **Backup Strategy**: Automated backups with retention policies
+1. **Podman Compatibility**: Support both root and rootless Podman
+2. **Systemd Integration**: Script to generate systemd service files
+3. **Log Rotation**: Daily rotation, compression, 7-day retention
+4. **Backup Strategy**: Automated backups with retention policies

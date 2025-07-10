@@ -1,9 +1,34 @@
 volumes:
   postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${POSTGRES_DATA_DIR:-./Data/Postgres}
   redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${REDIS_DATA_DIR:-./Data/Redis}
   n8n_main:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${N8N_DATA_DIR:-./Data/n8n}
   n8n_webhook:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${N8N_WEBHOOK_DATA_DIR:-./Data/n8n-webhook}
   traefik_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${TRAEFIK_DATA_DIR:-./Data/Traefik}
 
 networks:
   n8n-network:
@@ -11,11 +36,18 @@ networks:
   shark:
     external: true
 
+x-logging: &default-logging
+  driver: ${LOG_DRIVER:-json-file}
+  options:
+    max-size: ${LOG_MAX_SIZE:-10m}
+    max-file: ${LOG_MAX_FILE:-3}
+
 x-n8n: &service-n8n
   build:
     context: .
     dockerfile: Dockerfile
   restart: unless-stopped
+  logging: *default-logging
   networks:
     - n8n-network
     - shark
@@ -57,6 +89,7 @@ services:
     image: cloudflare/cloudflared:latest
     platform: linux/amd64  # Cloudflared supports multiple platforms
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - n8n-network
     command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
@@ -66,6 +99,7 @@ services:
   traefik:
     image: traefik:v2.10
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - n8n-network
     command:
@@ -84,6 +118,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
 #    ports:
 #      - 6379:6379
     healthcheck:
@@ -98,6 +133,7 @@ services:
   postgres:
     image: postgres:17
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "${TAILSCALE_IP}:5432:5432" # Bind to Tailscale IP if set, otherwise all interfaces
     environment:
@@ -190,6 +226,7 @@ services:
       context: .
       dockerfile: monitor/monitor.Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       redis:
         condition: service_healthy
@@ -215,6 +252,7 @@ services:
         - N8N_WORKER_SERVICE_NAME=${N8N_WORKER_SERVICE_NAME}
         - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
