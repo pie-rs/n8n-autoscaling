@@ -280,7 +280,7 @@ docker compose up -d
     - Added password configuration to autoscaler environment
 
 15. **✅ Backup System**: Comprehensive backup strategy with Google Drive integration
-    - PostgreSQL: Full database backups (compressed)
+    - PostgreSQL: Smart backup system (full every 12h, incremental hourly)
     - Redis: Database snapshots using BGSAVE (compressed)
     - n8n Data: Complete data directories including webhook data (compressed)
     - Automatic Google Drive sync with local cleanup when configured
@@ -288,9 +288,19 @@ docker compose up -d
     - Single script handles all backup types with individual service options
     - Cron-ready with suggested hourly and twice-daily schedules
 
+16. **✅ Restore System**: Interactive point-in-time recovery with safety features
+    - Multi-source backup discovery (local and Google Drive)
+    - Interactive menu for service and backup selection
+    - Automatic safety backup before restore
+    - Backup integrity validation (compression, SQL structure, size checks)
+    - Smart container management (stop/start sequences)
+    - Dry-run mode for testing restore operations
+    - Point-in-time recovery with timestamp display
+    - Support for PostgreSQL, Redis, and n8n data restoration
+
 ### Completed Production Enhancements ✅ (Latest)
 
-16. **✅ Performance Tuning**: Comprehensive performance variables for all applications
+17. **✅ Performance Tuning**: Comprehensive performance variables for all applications
     - **n8n**: Concurrency, memory limits, execution data pruning, Node.js optimizations
     - **PostgreSQL**: Memory allocation, query performance, parallel processing settings
     - **Redis**: Memory limits, eviction policies, persistence configuration

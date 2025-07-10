@@ -207,15 +207,49 @@ To enable automatic Google Drive sync:
 - **Google Drive**: Configured path with automatic cleanup
 - **Retention**: 7 days for all backup types
 
-### Recovery Examples
+### Recovery with Restore Script
+
+The system includes an interactive restore script that automates recovery:
+
 ```bash
-# Restore PostgreSQL from full backup
+# Interactive restore (recommended)
+./restore.sh
+
+# List available backups
+./restore.sh --list
+
+# Dry run (see what would be restored)
+./restore.sh --dry-run
+
+# Help and options
+./restore.sh --help
+```
+
+**Restore Script Features:**
+- **Interactive Menu**: Choose service and backup point
+- **Multi-Source Discovery**: Finds backups from both local and Google Drive
+- **Safety Backup**: Creates backup of current data before restore
+- **Integrity Validation**: Verifies backup files before restore
+- **Smart Container Management**: Safely stops/starts containers
+- **Point-in-Time Recovery**: Shows backups with timestamps
+- **Dry Run Mode**: Preview restore without making changes
+
+**Safety Features:**
+- Multiple confirmation prompts
+- Automatic safety backup creation
+- Backup integrity validation
+- Container state management
+- Detailed progress reporting
+
+### Manual Recovery Examples
+```bash
+# Manual PostgreSQL restore from full backup
 gunzip < postgres_full_20240115_143022.sql.gz | docker compose exec -T postgres psql -U postgres -d n8n
 
-# For incremental recovery, you would:
+# For incremental recovery:
 # 1. Restore the latest full backup
 # 2. Apply WAL files in chronological order
-# (Incremental restore requires PostgreSQL expertise)
+# (Use restore.sh for automated incremental recovery)
 ```
 
 ## Performance Tuning
