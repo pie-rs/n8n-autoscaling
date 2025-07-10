@@ -25,9 +25,12 @@ fi
 BACKUPS_DIR=${BACKUPS_DIR:-./backups}
 GDRIVE_BACKUP_MOUNT=${GDRIVE_BACKUP_MOUNT:-}
 COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-n8n-autoscaling}
-POSTGRES_DB=${POSTGRES_DB:-n8n}
-POSTGRES_USER=${POSTGRES_USER:-postgres}
+ENVIRONMENT=${ENVIRONMENT:-dev}
+POSTGRES_DB=${POSTGRES_DB:-n8n_${ENVIRONMENT}}
+POSTGRES_USER=${POSTGRES_USER:-n8n_${ENVIRONMENT}_user}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
+POSTGRES_ADMIN_USER=${POSTGRES_ADMIN_USER:-postgres}
+POSTGRES_ADMIN_PASSWORD=${POSTGRES_ADMIN_PASSWORD:-}
 REDIS_PASSWORD=${REDIS_PASSWORD:-}
 
 # Global variables
@@ -105,7 +108,18 @@ display_backups() {
             size=" ($(du -h "$filepath" | cut -f1))"
         fi
         
-        local date_formatted=$(date -d "${timestamp:0:8} ${timestamp:9:2}:${timestamp:11:2}:${timestamp:13:2}" 2>/dev/null || echo "$timestamp")
+        # Format date for display (cross-platform)
+        local year=${timestamp:0:4}
+        local month=${timestamp:4:2}
+        local day=${timestamp:6:2}
+        local hour=${timestamp:9:2}
+        local min=${timestamp:11:2}
+        local sec=${timestamp:13:2}
+        
+        # Try macOS date format first, then GNU date format
+        local date_formatted=$(date -j -f "%Y%m%d%H%M%S" "${year}${month}${day}${hour}${min}${sec}" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || \
+                               date -d "${year}-${month}-${day} ${hour}:${min}:${sec}" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || \
+                               echo "$timestamp")
         
         if [ "$source" = "gdrive" ]; then
             echo -e "${MAGENTA}$i)${NC} $date_formatted ${YELLOW}[GDrive]${NC}$size - $(basename "$filepath")"
@@ -309,12 +323,13 @@ restore_postgres() {
         sleep 10
     fi
     
-    # Drop and recreate database
+    # Drop and recreate database (using admin user)
     echo "  • Dropping and recreating database..."
-    docker compose exec -T postgres psql -U "$POSTGRES_USER" -c "DROP DATABASE IF EXISTS $POSTGRES_DB;"
-    docker compose exec -T postgres psql -U "$POSTGRES_USER" -c "CREATE DATABASE $POSTGRES_DB;"
+    docker compose exec -T postgres psql -U "$POSTGRES_ADMIN_USER" -c "DROP DATABASE IF EXISTS $POSTGRES_DB;"
+    docker compose exec -T postgres psql -U "$POSTGRES_ADMIN_USER" -c "CREATE DATABASE $POSTGRES_DB OWNER $POSTGRES_USER;"
+    docker compose exec -T postgres psql -U "$POSTGRES_ADMIN_USER" -c "GRANT ALL PRIVILEGES ON DATABASE $POSTGRES_DB TO $POSTGRES_USER;"
     
-    # Restore from backup
+    # Restore from backup (using application user)
     echo "  • Restoring data..."
     gunzip -c "$filepath" | docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
     

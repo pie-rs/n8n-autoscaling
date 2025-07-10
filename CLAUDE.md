@@ -309,6 +309,14 @@ docker compose up -d
     - All variables commented out by default with sensible defaults
     - Comprehensive documentation in README for each performance category
 
+18. **✅ PostgreSQL Security**: Environment-based database and user configuration
+    - **Separate Admin and Application Users**: PostgreSQL admin user (`postgres`) for database operations, dedicated application user for n8n
+    - **Environment-Based Naming**: Database and user names based on ENVIRONMENT variable (dev/test/production)
+    - **Database Naming**: `n8n_${ENVIRONMENT}` (e.g., `n8n_dev`, `n8n_test`, `n8n_production`)
+    - **User Naming**: `n8n_${ENVIRONMENT}_user` (e.g., `n8n_dev_user`, `n8n_test_user`, `n8n_production_user`)
+    - **Automatic Database/User Creation**: `init-postgres.sh` script creates database and user on first run
+    - **Updated Backup/Restore**: Scripts handle both admin and application user contexts appropriately
+
 ## 🎉 Production Requirements Complete
 
 All production requirements from `docs/project.spec.md` have been successfully implemented:
@@ -321,5 +329,6 @@ All production requirements from `docs/project.spec.md` have been successfully i
 ✅ **Comprehensive backup system with Google Drive integration**
 ✅ **Redis 8 upgrade with mandatory password authentication**
 ✅ **Performance tuning variables for all applications**
+✅ **PostgreSQL security with environment-based database and user configuration**
 
 The n8n-autoscaling system is now production-ready with enterprise-grade features.

@@ -1,4 +1,123 @@
-# .gitignore
+# Environment and secrets
 .env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+
+# Personal Claude context
 .claude/
 .CLAUDE.md
+
+# Data directories (runtime data)
+Data/
+Logs/
+backups/
+safety_backup_*/
+
+# Python virtual environments
+myenv/
+venv/
+env/
+.venv/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.node_repl_history
+*.tgz
+*.tar.gz
+
+# Docker
+.dockerignore.bak
+docker-compose.override.yml
+.docker/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# OS generated files
+.DS_Store?
+ehthumbs.db
+Icon?
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.pid
+*.seed
+*.cache
+.nyc_output
+.grunt
+bower_components
+.lock-wscript
+.coverage
+.sass-cache
+.connect.lock
+.nyc_output
+coverage/
+.nyc_output/
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+.mypy_cache/
+.pyre/
+
+# Systemd service files (generated)
+*.service
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+
+# Security scan results
+.snyk
+security-scan-*
+
+# Local development overrides
+docker-compose.local.yml
+local.env

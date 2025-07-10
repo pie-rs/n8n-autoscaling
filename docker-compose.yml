@@ -143,9 +143,9 @@ services:
     ports:
       - "${TAILSCALE_IP}:5432:5432" # Bind to Tailscale IP if set, otherwise all interfaces
     environment:
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=postgres  # Default database for admin user
+      - POSTGRES_USER=${POSTGRES_ADMIN_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD}
       - PGDATA=${PGDATA}
       - POSTGRES_HOST_AUTH_METHOD=scram-sha-256
       - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=scram-sha-256
@@ -153,7 +153,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -161,6 +161,24 @@ services:
       - n8n-network
       # Uncomment to connect to external network
       #- n8n-external
+
+  postgres-init:
+    image: postgres:17
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./init-postgres.sh:/init-postgres.sh
+      - ./.env:/app/.env
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT}
+      - POSTGRES_ADMIN_USER=${POSTGRES_ADMIN_USER}
+      - POSTGRES_ADMIN_PASSWORD=${POSTGRES_ADMIN_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    command: ["/init-postgres.sh"]
+    networks:
+      - n8n-network
+    restart: "no"
 
   n8n:
     <<: *service-n8n

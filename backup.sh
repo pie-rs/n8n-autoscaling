@@ -23,9 +23,12 @@ fi
 BACKUPS_DIR=${BACKUPS_DIR:-./backups}
 DATA_DIR=${DATA_DIR:-./Data}
 COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-n8n-autoscaling}
-POSTGRES_DB=${POSTGRES_DB:-n8n}
-POSTGRES_USER=${POSTGRES_USER:-postgres}
+ENVIRONMENT=${ENVIRONMENT:-dev}
+POSTGRES_DB=${POSTGRES_DB:-n8n_${ENVIRONMENT}}
+POSTGRES_USER=${POSTGRES_USER:-n8n_${ENVIRONMENT}_user}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
+POSTGRES_ADMIN_USER=${POSTGRES_ADMIN_USER:-postgres}
+POSTGRES_ADMIN_PASSWORD=${POSTGRES_ADMIN_PASSWORD:-}
 REDIS_PASSWORD=${REDIS_PASSWORD:-}
 GDRIVE_BACKUP_MOUNT=${GDRIVE_BACKUP_MOUNT:-}
 
@@ -120,7 +123,18 @@ backup_postgres() {
     # Check when last full backup was made
     if [ -f "$BACKUPS_DIR/postgres/.last_full_backup" ]; then
         LAST_FULL=$(cat "$BACKUPS_DIR/postgres/.last_full_backup")
-        LAST_FULL_EPOCH=$(date -d "${LAST_FULL:0:8} ${LAST_FULL:9:2}:${LAST_FULL:11:2}:${LAST_FULL:13:2}" +%s 2>/dev/null || echo "0")
+        # Convert timestamp to epoch (cross-platform)
+        YEAR=${LAST_FULL:0:4}
+        MONTH=${LAST_FULL:4:2}
+        DAY=${LAST_FULL:6:2}
+        HOUR=${LAST_FULL:9:2}
+        MIN=${LAST_FULL:11:2}
+        SEC=${LAST_FULL:13:2}
+        
+        # Try macOS date format first, then GNU date format
+        LAST_FULL_EPOCH=$(date -j -f "%Y%m%d%H%M%S" "${YEAR}${MONTH}${DAY}${HOUR}${MIN}${SEC}" +%s 2>/dev/null || \
+                          date -d "${YEAR}-${MONTH}-${DAY} ${HOUR}:${MIN}:${SEC}" +%s 2>/dev/null || \
+                          echo "0")
         CURRENT_EPOCH=$(date +%s)
         HOURS_SINCE_FULL=$(( (CURRENT_EPOCH - LAST_FULL_EPOCH) / 3600 ))
         
