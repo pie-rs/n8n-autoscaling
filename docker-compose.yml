@@ -33,8 +33,11 @@ volumes:
 networks:
   n8n-network:
     driver: bridge
-  shark:
-    external: true
+  # External network for connecting to other containers (optional)
+  # Uncomment and set EXTERNAL_NETWORK_NAME in .env to enable
+  #n8n-external:
+  #  external: true
+  #  name: ${EXTERNAL_NETWORK_NAME:-n8n-external}
 
 x-logging: &default-logging
   driver: ${LOG_DRIVER:-json-file}
@@ -50,7 +53,8 @@ x-n8n: &service-n8n
   logging: *default-logging
   networks:
     - n8n-network
-    - shark
+    # Uncomment to connect to external network
+    #- n8n-external
   environment:
     - N8N_DIAGNOSTICS_ENABLED=${N8N_DIAGNOSTICS_ENABLED}
     - N8N_USER_FOLDER=${N8N_USER_FOLDER}
@@ -153,7 +157,8 @@ services:
       retries: 10
     networks:
       - n8n-network
-      - shark
+      # Uncomment to connect to external network
+      #- n8n-external
 
   n8n:
     <<: *service-n8n
@@ -169,7 +174,8 @@ services:
         condition: service_healthy
     networks:
       - n8n-network
-      - shark
+      # Uncomment to connect to external network
+      #- n8n-external
     healthcheck:
       test: ["CMD", "node", "-v"]
       interval: 5s
@@ -214,7 +220,8 @@ services:
         condition: service_healthy
     networks:
       - n8n-network
-      - shark
+      # Uncomment to connect to external network
+      #- n8n-external
     healthcheck:
       test: ["CMD", "node", "-v"]
       interval: 5s

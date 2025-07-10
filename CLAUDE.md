@@ -10,18 +10,21 @@ This is a Docker-based autoscaling solution for n8n workflow automation platform
 
 ### Initial Setup
 ```bash
-# Create external network (required)
-docker network create shark
-
 # Copy environment configuration
 cp .env.example .env
 # Then edit .env with your values
 
-# Create data directories
-./setup-dirs.sh
+# Create data directories (and optional external network if configured)
+./setup.sh
 
 # Start all services
 docker compose up -d
+
+# Optional: Enable external network for connecting to other containers
+# 1. Uncomment EXTERNAL_NETWORK_NAME=n8n-external in .env
+# 2. Uncomment the network sections in docker-compose.yml
+# 3. Re-run ./setup.sh to create the network
+# 4. Restart services: docker compose up -d
 
 # Optional: Enable Google Drive integration
 # 1. Uncomment GDRIVE_DATA_MOUNT in .env
@@ -96,7 +99,7 @@ Critical environment variables in `.env`:
 
 ### Network Configuration
 - Internal network: `n8n-network` (for service communication)
-- External network: `shark` (for integration with other containers)
+- External network: `n8n-external` (optional - for integration with other containers)
 - Traefik endpoints: `:8082` (UI), `:8083` (webhooks)
 
 ## Important Notes
@@ -132,7 +135,7 @@ The system supports optional Google Drive mounting for data storage:
 # GDRIVE_BACKUP_MOUNT=/user/webapps/mounts/gdrive-backups
 
 # 2. Create directories and start with Google Drive support
-./setup-dirs.sh
+./setup.sh
 docker compose -f docker-compose.yml -f docker-compose.gdrive.yml up -d
 ```
 
@@ -204,10 +207,19 @@ docker compose up -d
 8. **✅ Logging Configuration**: Structured logging with rotation limits
    - Configurable log driver, max size, and file count
    - Applied to all services uniformly
+9. **✅ Podman Compatibility**: Full support for both Docker and Podman
+   - Automatic runtime detection
+   - Environment variable override option
+   - Works with both root and rootless Podman
+10. **✅ External Network**: Optional configuration via environment variable
+    - Renamed from `shark` to `n8n-external`
+    - Disabled by default for simpler setup
+    - Easy to enable when needed
 
 ### Remaining Production Tasks
 
-1. **Podman Compatibility**: Support both root and rootless Podman
-2. **Systemd Integration**: Script to generate systemd service files
-3. **Log Rotation**: Daily rotation, compression, 7-day retention
-4. **Backup Strategy**: Automated backups with retention policies
+1. **Systemd Integration**: Script to generate systemd service files
+2. **Log Rotation**: Daily rotation, compression, 7-day retention
+3. **Backup Strategy**: Automated backups with retention policies
+4. **Redis 8 Upgrade**: Upgrade to Redis 8 with mandatory password
+5. **Performance Tuning**: Add extra performance variables for each app

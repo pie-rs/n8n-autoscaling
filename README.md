@@ -43,18 +43,18 @@ graph TD
 ## Quick Start
 
 1. Copy or Clone this repository to a folder of your choice
-2. Rename .env.example to .env
-3. Configure your environment variables in the .env file - defaults are good to go, but set new passwords and tokens.
-4. Run:
+2. Copy and configure environment:
    ```bash
-   docker network create shark
+   cp .env.example .env
+   # Edit .env - defaults are good to go, but set new passwords and tokens
    ```
-5. Run:
+3. Run setup and start services:
    ```bash
+   ./setup.sh
    docker compose up -d
    ```
 
-We create the shark external network in step 4 to make it easier to plug in other containers later.  If you don't want to do this, you can comment out the shark network in the docker compose file.  
+That's it! The setup script creates all necessary directories and handles both Docker and Podman automatically.  
 
 ## Configuration
 
