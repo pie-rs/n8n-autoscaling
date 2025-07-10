@@ -38,9 +38,9 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 echo -e "${GREEN}🔄 Starting backup process for n8n-autoscaling${NC}"
 echo "================================================"
 
-# Function to backup PostgreSQL
-backup_postgres() {
-    echo -e "${YELLOW}📋 Backing up PostgreSQL database...${NC}"
+# Function to backup PostgreSQL (full backup)
+backup_postgres_full() {
+    echo -e "${YELLOW}📋 Creating PostgreSQL full backup...${NC}"
     
     # Check if postgres container is running
     if ! docker compose ps postgres | grep -q "Up"; then
@@ -56,9 +56,85 @@ backup_postgres() {
     
     if [ -f "$BACKUP_FILE" ] && [ -s "$BACKUP_FILE" ]; then
         echo -e "    ✅ Full backup completed: $(du -h "$BACKUP_FILE" | cut -f1)"
+        
+        # Create a marker file for incremental backups
+        echo "$TIMESTAMP" > "$BACKUPS_DIR/postgres/.last_full_backup"
     else
         echo -e "${RED}    ❌ Full backup failed${NC}"
         return 1
+    fi
+}
+
+# Function to backup PostgreSQL (incremental backup using WAL)
+backup_postgres_incremental() {
+    echo -e "${YELLOW}📋 Creating PostgreSQL incremental backup...${NC}"
+    
+    # Check if postgres container is running
+    if ! docker compose ps postgres | grep -q "Up"; then
+        echo -e "${RED}❌ PostgreSQL container is not running${NC}"
+        return 1
+    fi
+    
+    # Check if we have a base backup
+    if [ ! -f "$BACKUPS_DIR/postgres/.last_full_backup" ]; then
+        echo -e "${YELLOW}⚠️  No full backup found, creating full backup instead...${NC}"
+        backup_postgres_full
+        return $?
+    fi
+    
+    # Create WAL backup directory
+    mkdir -p "$BACKUPS_DIR/postgres/wal"
+    
+    # Force a WAL segment switch and backup current WAL files
+    echo "  • Creating incremental backup: postgres_incremental_${TIMESTAMP}.tar.gz"
+    
+    # Get current WAL file location
+    CURRENT_WAL=$(docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c "SELECT pg_walfile_name(pg_current_wal_lsn());" | tr -d ' \n\r')
+    
+    # Force WAL switch to ensure current transactions are in a complete WAL file
+    docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT pg_switch_wal();" > /dev/null
+    
+    # Copy WAL files from the container
+    BACKUP_FILE="$BACKUPS_DIR/postgres/postgres_incremental_${TIMESTAMP}.tar.gz"
+    docker compose exec postgres tar -czf - -C /var/lib/postgresql/data/pg_wal . 2>/dev/null | cat > "$BACKUP_FILE"
+    
+    if [ -f "$BACKUP_FILE" ] && [ -s "$BACKUP_FILE" ]; then
+        echo -e "    ✅ Incremental backup completed: $(du -h "$BACKUP_FILE" | cut -f1)"
+        echo "    📝 WAL file: $CURRENT_WAL"
+    else
+        echo -e "${RED}    ❌ Incremental backup failed${NC}"
+        return 1
+    fi
+}
+
+# Function to backup PostgreSQL (smart backup - full or incremental based on time)
+backup_postgres() {
+    local FORCE_FULL="${1:-false}"
+    
+    # Force full backup if requested
+    if [ "$FORCE_FULL" = "true" ]; then
+        backup_postgres_full
+        return $?
+    fi
+    
+    # Check when last full backup was made
+    if [ -f "$BACKUPS_DIR/postgres/.last_full_backup" ]; then
+        LAST_FULL=$(cat "$BACKUPS_DIR/postgres/.last_full_backup")
+        LAST_FULL_EPOCH=$(date -d "${LAST_FULL:0:8} ${LAST_FULL:9:2}:${LAST_FULL:11:2}:${LAST_FULL:13:2}" +%s 2>/dev/null || echo "0")
+        CURRENT_EPOCH=$(date +%s)
+        HOURS_SINCE_FULL=$(( (CURRENT_EPOCH - LAST_FULL_EPOCH) / 3600 ))
+        
+        # Create full backup every 12 hours, incremental otherwise
+        if [ "$HOURS_SINCE_FULL" -ge 12 ]; then
+            echo "  💡 Last full backup was $HOURS_SINCE_FULL hours ago, creating new full backup"
+            backup_postgres_full
+        else
+            echo "  💡 Last full backup was $HOURS_SINCE_FULL hours ago, creating incremental backup"
+            backup_postgres_incremental
+        fi
+    else
+        echo "  💡 No previous backup found, creating first full backup"
+        backup_postgres_full
     fi
 }
 
@@ -235,16 +311,20 @@ main() {
     echo ""
     echo -e "${YELLOW}📋 To set up automatic backups:${NC}"
     echo ""
-    echo "1. Add to crontab for hourly backups:"
-    echo "   0 * * * * $SCRIPT_DIR/backup.sh >/dev/null 2>&1"
+    echo "Recommended cron schedule:"
+    echo "  # Smart backups (full every 12h, incremental hourly)"
+    echo "  0 * * * * $SCRIPT_DIR/backup.sh >/dev/null 2>&1"
     echo ""
-    echo "2. Add to crontab for twice-daily PostgreSQL full backups:"
-    echo "   0 0,12 * * * $SCRIPT_DIR/backup.sh postgres >/dev/null 2>&1"
+    echo "  # Alternative: Separate full and incremental schedules"
+    echo "  # 0 0,12 * * * $SCRIPT_DIR/backup.sh postgres-full >/dev/null 2>&1    # Full backup twice daily"
+    echo "  # 0 1-11,13-23 * * * $SCRIPT_DIR/backup.sh postgres-incremental >/dev/null 2>&1  # Incremental hourly"
+    echo "  # 30 * * * * $SCRIPT_DIR/backup.sh redis >/dev/null 2>&1               # Redis hourly"
+    echo "  # 45 * * * * $SCRIPT_DIR/backup.sh n8n >/dev/null 2>&1                 # n8n data hourly"
     echo ""
     if [ -n "$GDRIVE_BACKUP_MOUNT" ]; then
-        echo "3. Google Drive sync is automatically included when GDRIVE_BACKUP_MOUNT is set"
+        echo "Google Drive sync is automatically included when GDRIVE_BACKUP_MOUNT is set"
     else
-        echo "3. To enable Google Drive sync, set GDRIVE_BACKUP_MOUNT in .env"
+        echo "To enable Google Drive sync, set GDRIVE_BACKUP_MOUNT in .env"
     fi
 }
 
@@ -253,6 +333,14 @@ case "${1:-}" in
     postgres)
         echo -e "${GREEN}🔄 Running PostgreSQL backup only${NC}"
         backup_postgres
+        ;;
+    postgres-full)
+        echo -e "${GREEN}🔄 Running PostgreSQL full backup only${NC}"
+        backup_postgres_full
+        ;;
+    postgres-incremental)
+        echo -e "${GREEN}🔄 Running PostgreSQL incremental backup only${NC}"
+        backup_postgres_incremental
         ;;
     redis)
         echo -e "${GREEN}🔄 Running Redis backup only${NC}"
@@ -266,12 +354,22 @@ case "${1:-}" in
         echo "Usage: $0 [SERVICE]"
         echo ""
         echo "Services:"
-        echo "  postgres    Backup PostgreSQL database only"
-        echo "  redis       Backup Redis data only"
-        echo "  n8n         Backup n8n data only"
-        echo "  (no args)   Backup all services"
+        echo "  postgres              Smart PostgreSQL backup (full every 12h, incremental otherwise)"
+        echo "  postgres-full         Force full PostgreSQL backup"
+        echo "  postgres-incremental  Force incremental PostgreSQL backup"
+        echo "  redis                 Backup Redis data only"
+        echo "  n8n                   Backup n8n data only"
+        echo "  (no args)             Backup all services"
         echo ""
-        echo "This script creates compressed backups of all n8n-autoscaling data."
+        echo "PostgreSQL Backup Strategy:"
+        echo "  - Full backups: Complete database dump (larger, standalone)"
+        echo "  - Incremental backups: WAL files since last full backup (smaller, faster)"
+        echo "  - Smart backup: Automatically chooses full (every 12h) or incremental"
+        echo ""
+        echo "Recommended cron schedule:"
+        echo "  0 * * * * $SCRIPT_DIR/backup.sh                    # Hourly smart backups"
+        echo "  0 0,12 * * * $SCRIPT_DIR/backup.sh postgres-full   # Force full backup twice daily"
+        echo ""
         echo "Backups are stored in $BACKUPS_DIR with automatic cleanup after 7 days."
         exit 0
         ;;

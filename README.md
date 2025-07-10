@@ -123,32 +123,70 @@ Podman auto-update is automatically configured when using the systemd service ge
 
 ## Backups
 
-The system includes automated backup functionality for all critical data:
+The system includes automated backup functionality with incremental PostgreSQL backups to minimize storage and improve performance.
 
 ### Backup Components
-- **PostgreSQL**: Full database backup (compressed)
-- **Redis**: Database snapshot (compressed) 
+- **PostgreSQL**: Smart backup system (full every 12h, incremental hourly)
+- **Redis**: Database snapshots using BGSAVE (compressed) 
 - **n8n Data**: Complete data directories including webhook data (compressed)
+
+### PostgreSQL Backup Strategy
+The system uses a sophisticated backup approach:
+
+- **Full Backups**: Complete database dump (larger, standalone restore)
+- **Incremental Backups**: WAL (Write-Ahead Log) files only (smaller, faster)
+- **Smart Backup**: Automatically chooses full (every 12h) or incremental (hourly)
+
+This approach reduces backup time and storage space while maintaining complete recovery capability.
 
 ### Running Backups
 ```bash
-# Manual backup (all services)
+# Smart backup (recommended - automatically chooses full or incremental)
 ./backup.sh
 
-# Backup specific service
-./backup.sh postgres
-./backup.sh redis
-./backup.sh n8n
+# Force specific backup types
+./backup.sh postgres-full         # Force full PostgreSQL backup
+./backup.sh postgres-incremental  # Force incremental PostgreSQL backup
+./backup.sh postgres              # Smart PostgreSQL backup
+./backup.sh redis                 # Redis backup only
+./backup.sh n8n                   # n8n data backup only
+
+# View help and cron examples
+./backup.sh --help
 ```
 
-### Automatic Backups
+### Recommended Cron Schedule
 Add to crontab for automated backups:
+
+**Option 1: Simple Smart Backups (Recommended)**
 ```bash
-# Hourly backups
+# Smart backups - full every 12h, incremental hourly
+0 * * * * /path/to/n8n-autoscaling/backup.sh >/dev/null 2>&1
+```
+
+**Option 2: Separate Service Schedules**
+```bash
+# PostgreSQL full backup twice daily
+0 0,12 * * * /path/to/n8n-autoscaling/backup.sh postgres-full >/dev/null 2>&1
+
+# PostgreSQL incremental hourly (skip full backup hours)
+0 1-11,13-23 * * * /path/to/n8n-autoscaling/backup.sh postgres-incremental >/dev/null 2>&1
+
+# Other services hourly
+30 * * * * /path/to/n8n-autoscaling/backup.sh redis >/dev/null 2>&1
+45 * * * * /path/to/n8n-autoscaling/backup.sh n8n >/dev/null 2>&1
+```
+
+### Setting Up Cron
+```bash
+# Edit your crontab
+crontab -e
+
+# Add the recommended line (Option 1)
 0 * * * * /path/to/n8n-autoscaling/backup.sh >/dev/null 2>&1
 
-# PostgreSQL full backup twice daily
-0 0,12 * * * /path/to/n8n-autoscaling/backup.sh postgres >/dev/null 2>&1
+# Save and verify
+crontab -l
 ```
 
 ### Google Drive Integration
@@ -158,10 +196,27 @@ To enable automatic Google Drive sync:
 3. Backups will automatically sync to Google Drive and local copies will be removed
 4. 7-day retention is maintained on Google Drive
 
-### Backup Storage
+### Backup Storage & Sizes
+- **PostgreSQL Full**: ~50-500MB (depends on data size)
+- **PostgreSQL Incremental**: ~1-50MB (depends on activity)
+- **Redis**: ~1-100MB (depends on queue size)
+- **n8n Data**: ~10-200MB (depends on workflows and executions)
+
+**Storage Locations:**
 - **Local**: `./backups/{postgres,redis,n8n}/` (if not using Google Drive)
 - **Google Drive**: Configured path with automatic cleanup
 - **Retention**: 7 days for all backup types
+
+### Recovery Examples
+```bash
+# Restore PostgreSQL from full backup
+gunzip < postgres_full_20240115_143022.sql.gz | docker compose exec -T postgres psql -U postgres -d n8n
+
+# For incremental recovery, you would:
+# 1. Restore the latest full backup
+# 2. Apply WAL files in chronological order
+# (Incremental restore requires PostgreSQL expertise)
+```
 
 ## Performance Tuning
 
