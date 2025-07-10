@@ -96,7 +96,7 @@ WorkingDirectory=${SCRIPT_DIR}
 Environment="PATH=/usr/local/bin:/usr/bin:/bin"
 
 # Pre-start: ensure directories exist
-ExecStartPre=${SCRIPT_DIR}/setup.sh
+ExecStartPre=/bin/bash -c 'mkdir -p ${DATA_DIR}/{Postgres,Redis,n8n,n8n-webhook,Traefik} ${BACKUPS_DIR}'
 
 # Start the stack
 ExecStart=/usr/bin/env ${COMPOSE_CMD} ${COMPOSE_FILES} up -d --remove-orphans

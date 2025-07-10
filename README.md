@@ -42,23 +42,53 @@ graph TD
 
 ## Quick Start
 
-1. Copy or Clone this repository to a folder of your choice
-2. Copy and configure environment:
+1. Clone this repository to a folder of your choice
+2. Run the interactive setup wizard:
    ```bash
-   cp .env.example .env
-   # Edit .env - defaults are good to go, but set new passwords and tokens
+   ./n8n-setup.sh
    ```
-3. Run setup and start services:
+   The setup wizard will:
+   - Create your .env file from template
+   - Generate secure passwords and tokens
+   - Configure timezone, URLs, and optional features
+   - Create necessary directories with proper paths
+   - Optionally set up databases and test the installation
+
+3. Start services (if not done during setup):
    ```bash
-   ./setup.sh
    docker compose up -d
    ```
 
-That's it! The setup script creates all necessary directories and handles both Docker and Podman automatically.  
+That's it! The setup script handles everything automatically, including Docker/Podman detection.
+
+## Setup Wizard Features
+
+The `n8n-setup.sh` script provides:
+- **Interactive Configuration**: Step-by-step guided setup
+- **Automatic Path Resolution**: Converts relative paths to absolute for Docker compatibility
+- **Environment Management**: Create dev/test/production environments
+- **Security**: Generates secure random passwords with optional salt
+- **Optional Features**: Google Drive, Cloudflare tunnel, Tailscale, external networks
+- **Database Setup**: Automatic PostgreSQL and Redis initialization
+- **Health Checks**: Verifies services are running correctly
+- **Reset Options**: Clean slate functionality if you need to start over
+
+### Resetting Your Environment
+
+If you need to start fresh or have issues with credentials:
+```bash
+./n8n-setup.sh
+# Select option 3: Reset environment
+```
+
+Reset options include:
+- **Everything**: Removes all data, .env file, and Docker resources
+- **Just Data**: Keeps configuration but removes all database/app data  
+- **Just .env**: Removes configuration file (warning: existing data won't be accessible)
 
 ## Configuration
 
-- Make sure you set your own passwords and encryption keys in the .env file!!!
+- Make sure you set your own passwords and encryption keys in the .env file if you dont use the setup script
 - By default each worker handles 10 tasks at a time, you can modify this in the docker-compose under:      
    - N8N_CONCURRENCY_PRODUCTION_LIMIT=10
 - Adjust these to be greater than your longest expected workflow execution time measured in seconds:

@@ -23,27 +23,30 @@ This is a Docker-based autoscaling solution for n8n workflow automation platform
 
 ### Initial Setup
 ```bash
-# Copy environment configuration
-cp .env.example .env
-# Then edit .env with your values
+# Run the interactive setup wizard
+./n8n-setup.sh
 
-# Create data directories (and optional external network if configured)
-./setup.sh
+# The wizard will:
+# 1. Create .env file from .env.example
+# 2. Ask for environment (dev/test/production)
+# 3. Generate secure random secrets (optional)
+# 4. Detect and configure timezone
+# 5. Configure external network (optional)
+# 6. Set up Google Drive integration with directory validation (optional)
+# 7. Configure Cloudflare Tunnel with token validation (optional)
+# 8. Configure Tailscale IP for PostgreSQL binding (optional)
+# 9. Configure n8n and webhook URLs
+# 10. Configure autoscaling parameters (optional)
+# 11. Detect container runtime (Docker/Podman)
+# 12. Create data directories with absolute paths
+# 13. Create database and test the setup
+# 14. Mark setup as completed
 
-# Start all services
-docker compose up -d
-
-# Optional: Enable external network for connecting to other containers
-# 1. Uncomment EXTERNAL_NETWORK_NAME=n8n-external in .env
-# 2. Uncomment the network sections in docker-compose.yml
-# 3. Re-run ./setup.sh to create the network
-# 4. Restart services: docker compose up -d
-
-# Optional: Enable Google Drive integration
-# 1. Uncomment GDRIVE_DATA_MOUNT in .env
-# 2. Ensure mount point exists and is accessible
-# 3. Start with Google Drive support:
-docker compose -f docker-compose.yml -f docker-compose.gdrive.yml up -d
+# Run n8n-setup.sh again to:
+# - Configure systemd services
+# - Re-run setup wizard
+# - Reset environment (clean start)
+./n8n-setup.sh
 ```
 
 ### Development Commands
@@ -317,6 +320,23 @@ docker compose up -d
     - **Automatic Database/User Creation**: `init-postgres.sh` script creates database and user on first run
     - **Updated Backup/Restore**: Scripts handle both admin and application user contexts appropriately
 
+19. **✅ Interactive Setup Wizard**: Comprehensive setup.sh wizard for zero-configuration deployment
+    - **Environment File Creation**: Creates .env from .env.example with user confirmation
+    - **Environment Selection**: Prompts for dev/test/production environment
+    - **Secure Secret Generation**: Generates cryptographically secure passwords, encryption keys, and tokens using user-provided salt
+    - **Timezone Detection**: Automatically detects system timezone with option to override
+    - **External Network Configuration**: Optional external network setup for container integration
+    - **Google Drive Integration**: Optional Google Drive mount configuration with directory validation and creation
+    - **Cloudflare Tunnel Configuration**: Optional Cloudflare tunnel token setup with validation
+    - **Tailscale Integration**: Optional Tailscale IP configuration for secure PostgreSQL binding
+    - **URL Configuration**: Validates and configures n8n main and webhook URLs
+    - **Autoscaling Configuration**: Optional customization of worker scaling parameters (min/max replicas, thresholds)
+    - **Container Runtime Detection**: Automatically detects Docker/Podman with manual override option
+    - **Database Creation**: Creates environment-specific database and user with existence checks
+    - **Setup Testing**: Starts services and runs health checks (Redis, PostgreSQL, container status)
+    - **Systemd Integration**: On second run, offers to set up systemd services
+    - **Setup Completion Tracking**: Uses flag in .env to track completion status
+
 ## 🎉 Production Requirements Complete
 
 All production requirements from `docs/project.spec.md` have been successfully implemented:
@@ -330,5 +350,6 @@ All production requirements from `docs/project.spec.md` have been successfully i
 ✅ **Redis 8 upgrade with mandatory password authentication**
 ✅ **Performance tuning variables for all applications**
 ✅ **PostgreSQL security with environment-based database and user configuration**
+✅ **Interactive setup wizard for zero-configuration deployment**
 
 The n8n-autoscaling system is now production-ready with enterprise-grade features.
