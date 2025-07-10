@@ -264,9 +264,30 @@ docker compose up -d
     - **Podman**: Built-in auto-update via systemd timer and container labels
     - Podman auto-update configured automatically via `./generate-systemd.sh`
 
+### Completed Production Enhancements ✅ (Latest)
+
+13. **✅ Logging Configuration**: Built-in Docker/Podman log rotation
+    - Uses json-file driver with automatic rotation (10MB/3 files)
+    - No additional log rotation needed - handled by container runtime
+    - Comprehensive logging documentation in README
+    - Systemd service logs via journalctl
+
+14. **✅ Redis 8 Upgrade**: Upgraded to Redis 8 with mandatory password
+    - Updated to redis:8-alpine image
+    - Added mandatory password authentication via REDIS_PASSWORD
+    - Updated healthcheck to use password authentication
+    - Updated all Redis CLI commands in documentation
+    - Added password configuration to autoscaler environment
+
+15. **✅ Backup System**: Comprehensive backup strategy with Google Drive integration
+    - PostgreSQL: Full database backups (compressed)
+    - Redis: Database snapshots using BGSAVE (compressed)
+    - n8n Data: Complete data directories including webhook data (compressed)
+    - Automatic Google Drive sync with local cleanup when configured
+    - 7-day retention policy (on Google Drive when enabled, locally otherwise)
+    - Single script handles all backup types with individual service options
+    - Cron-ready with suggested hourly and twice-daily schedules
+
 ### Remaining Production Tasks
 
-1. **Log Rotation**: Daily rotation, compression, 7-day retention
-2. **Backup Strategy**: Automated backups with retention policies
-3. **Redis 8 Upgrade**: Upgrade to Redis 8 with mandatory password
-4. **Performance Tuning**: Add extra performance variables for each app
+1. **Performance Tuning**: Add extra performance variables for each app

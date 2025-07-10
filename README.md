@@ -121,11 +121,53 @@ docker run -d \
 ### For Podman Users
 Podman auto-update is automatically configured when using the systemd service generator (`./generate-systemd.sh`). The system will check for updates daily and restart containers with newer images.
 
+## Backups
+
+The system includes automated backup functionality for all critical data:
+
+### Backup Components
+- **PostgreSQL**: Full database backup (compressed)
+- **Redis**: Database snapshot (compressed) 
+- **n8n Data**: Complete data directories including webhook data (compressed)
+
+### Running Backups
+```bash
+# Manual backup (all services)
+./backup.sh
+
+# Backup specific service
+./backup.sh postgres
+./backup.sh redis
+./backup.sh n8n
+```
+
+### Automatic Backups
+Add to crontab for automated backups:
+```bash
+# Hourly backups
+0 * * * * /path/to/n8n-autoscaling/backup.sh >/dev/null 2>&1
+
+# PostgreSQL full backup twice daily
+0 0,12 * * * /path/to/n8n-autoscaling/backup.sh postgres >/dev/null 2>&1
+```
+
+### Google Drive Integration
+To enable automatic Google Drive sync:
+1. Uncomment `GDRIVE_BACKUP_MOUNT` in `.env`
+2. Ensure Google Drive is mounted at the specified path
+3. Backups will automatically sync to Google Drive and local copies will be removed
+4. 7-day retention is maintained on Google Drive
+
+### Backup Storage
+- **Local**: `./backups/{postgres,redis,n8n}/` (if not using Google Drive)
+- **Google Drive**: Configured path with automatic cleanup
+- **Retention**: 7 days for all backup types
+
 ## Troubleshooting
 
-- Check container logs: `docker-compose logs [service]`
-- Verify Redis connection: `docker-compose exec redis redis-cli ping`
-- Check queue length manually: `docker-compose exec redis redis-cli LLEN bull:jobs:wait`
+- Check container logs: `docker compose logs [service]`
+- Verify Redis connection: `docker compose exec redis redis-cli -a "${REDIS_PASSWORD}" ping`
+- Check queue length manually: `docker compose exec redis redis-cli -a "${REDIS_PASSWORD}" LLEN bull:jobs:wait`
 
 Webhook URL example:
 Webhooks use your cloudflare subdomain name not local host, example:
