@@ -111,62 +111,63 @@ reset_environment() {
     esac
 }
 
-# Check if this is a second run (setup already completed)
-if [ -f .env ]; then
-    SETUP_COMPLETE_FLAG=$(grep "^SETUP_COMPLETED=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
+# Check if any data directories exist (even without .env)
+DATA_EXISTS=false
+if [ -d "Data/Postgres/pgdata" ] || [ -d "Data/Redis" ] || [ -d "Data/n8n" ] || [ -f .env ]; then
+    DATA_EXISTS=true
+fi
+
+# Show main menu based on current state
+if [ "$DATA_EXISTS" = "true" ]; then
+    if [ -f .env ]; then
+        SETUP_COMPLETE_FLAG=$(grep "^SETUP_COMPLETED=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
+        if [ "$SETUP_COMPLETE_FLAG" = "true" ]; then
+            echo "${GREEN}✅ Setup has been completed previously.${NC}"
+        else
+            echo "${YELLOW}⚠️  Found partial setup (.env exists but setup not completed)${NC}"
+        fi
+    else
+        echo "${YELLOW}⚠️  Found existing data directories but no .env file${NC}"
+    fi
+    
+    echo ""
+    echo "What would you like to do?"
+    echo "1. Run full setup wizard"
+    echo "2. Reset environment (clean start)"
     if [ "$SETUP_COMPLETE_FLAG" = "true" ]; then
-        echo "${GREEN}✅ Setup has been completed previously.${NC}"
-        echo ""
-        echo "What would you like to do?"
-        echo "1. Set up systemd services"
-        echo "2. Re-run full setup wizard"
-        echo "3. Reset environment (clean start)"
+        echo "3. Set up systemd services"
         echo "4. Exit"
-        echo ""
+    else
+        echo "3. Exit"
+    fi
+    echo ""
+    
+    if [ "$SETUP_COMPLETE_FLAG" = "true" ]; then
         echo -n "Enter your choice [1-4]: "
-        read -r choice_response
-        case "$choice_response" in
-            1)
+    else
+        echo -n "Enter your choice [1-3]: "
+    fi
+    read -r choice_response
+    
+    case "$choice_response" in
+        1)
+            echo "${BLUE}🔄 Running setup wizard...${NC}"
+            echo ""
+            # Continue with full setup
+            ;;
+        2)
+            reset_environment
+            ;;
+        3)
+            if [ "$SETUP_COMPLETE_FLAG" = "true" ]; then
                 echo "${BLUE}🔧 Setting up systemd services...${NC}"
                 ./generate-systemd.sh
                 exit 0
-                ;;
-            2)
-                echo "${BLUE}🔄 Re-running full setup wizard...${NC}"
-                echo ""
-                # Continue with full setup
-                ;;
-            3)
-                reset_environment
-                ;;
-            4|*)
-                echo "${BLUE}ℹ️  You can run systemd setup later with: ./generate-systemd.sh${NC}"
+            else
                 exit 0
-                ;;
-        esac
-    fi
-fi
-
-# Also check if data directories exist without .env (potential orphaned data)
-if [ ! -f .env ] && [ -d "Data/Postgres/pgdata" ]; then
-    echo "${YELLOW}⚠️  Found existing data directories but no .env file${NC}"
-    echo ""
-    echo "This might be from a previous installation. What would you like to do?"
-    echo "1. Reset everything and start fresh (recommended)"
-    echo "2. Continue with setup (data won't be accessible)"
-    echo "3. Exit"
-    echo ""
-    echo -n "Enter your choice [1-3]: "
-    read -r orphan_choice
-    case "$orphan_choice" in
-        1)
-            reset_environment
+            fi
             ;;
-        2)
-            echo "${YELLOW}⚠️  Continuing with setup. Existing data won't be accessible.${NC}"
-            echo ""
-            ;;
-        3|*)
+        4|*)
             exit 0
             ;;
     esac
