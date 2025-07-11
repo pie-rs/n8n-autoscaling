@@ -9,12 +9,14 @@ if command -v tput >/dev/null 2>&1; then
     GREEN=$(tput setaf 2)
     YELLOW=$(tput setaf 3)
     BLUE=$(tput setaf 4)
+    CYAN=$(tput setaf 6)
     NC=$(tput sgr0)
 else
     RED=''
     GREEN=''
     YELLOW=''
     BLUE=''
+    CYAN=''
     NC=''
 fi
 
@@ -126,75 +128,54 @@ fi
 # Function to detect existing deployment architecture
 detect_deployment_architecture() {
     local current_arch=""
+    local traefik_enabled=false
+    local cloudflare_enabled=false
+    local rclone_enabled=false
     
-    # Check if containers are running
-    local containers_running=false
-    if command -v docker >/dev/null 2>&1; then
-        if docker compose ps --quiet 2>/dev/null | grep -q .; then
-            containers_running=true
-        fi
-    elif command -v podman >/dev/null 2>&1; then
-        if podman compose ps --quiet 2>/dev/null | grep -q .; then
-            containers_running=true
-        fi
-    fi
-    
-    # Check for Traefik container
-    local traefik_running=false
-    if [ "$containers_running" = "true" ]; then
-        if docker ps --format "table {{.Names}}" 2>/dev/null | grep -q traefik || \
-           podman ps --format "table {{.Names}}" 2>/dev/null | grep -q traefik; then
-            traefik_running=true
+    # Read enable flags from .env
+    if [ -f .env ]; then
+        local enable_cf=$(grep "^ENABLE_CLOUDFLARE_TUNNEL=" .env 2>/dev/null | cut -d'=' -f2 || echo "false")
+        local enable_traefik=$(grep "^ENABLE_TRAEFIK=" .env 2>/dev/null | cut -d'=' -f2 || echo "false")
+        local enable_rclone=$(grep "^ENABLE_RCLONE_MOUNT=" .env 2>/dev/null | cut -d'=' -f2 || echo "false")
+        
+        # Set architecture based on enable flags
+        if [ "$enable_cf" = "true" ]; then
+            cloudflare_enabled=true
+            current_arch="cloudflare"
+        elif [ "$enable_traefik" = "true" ]; then
+            traefik_enabled=true
             current_arch="traefik"
         fi
-    fi
-    
-    # Check for Cloudflare tunnel in .env
-    local cloudflare_configured=false
-    if [ -f .env ]; then
-        local cf_token=$(grep "^CLOUDFLARE_TUNNEL_TOKEN=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
-        if [ -n "$cf_token" ] && [ "$cf_token" != "your_tunnel_token_here" ]; then
-            cloudflare_configured=true
-            if [ "$current_arch" = "" ]; then
-                current_arch="cloudflare"
-            fi
+        
+        if [ "$enable_rclone" = "true" ]; then
+            rclone_enabled=true
         fi
     fi
     
-    # Check for rclone configuration
-    local rclone_configured=false
-    if [ -f .env ]; then
-        local rclone_data=$(grep "^RCLONE_DATA_MOUNT=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
-        if [ -n "$rclone_data" ]; then
-            rclone_configured=true
-        fi
-    fi
-    
-    echo "$current_arch,$traefik_running,$cloudflare_configured,$rclone_configured"
+    echo "$current_arch,$traefik_enabled,$cloudflare_enabled,$rclone_enabled"
 }
 
 # Function to handle architecture migration
 handle_migration() {
     local arch_info=$(detect_deployment_architecture)
     local current_arch=$(echo "$arch_info" | cut -d',' -f1)
-    local traefik_running=$(echo "$arch_info" | cut -d',' -f2)
-    local cloudflare_configured=$(echo "$arch_info" | cut -d',' -f3)
-    local rclone_configured=$(echo "$arch_info" | cut -d',' -f4)
+    local traefik_enabled=$(echo "$arch_info" | cut -d',' -f2)
+    local cloudflare_enabled=$(echo "$arch_info" | cut -d',' -f3)
+    local rclone_enabled=$(echo "$arch_info" | cut -d',' -f4)
     
     local migration_needed=false
     local migration_type=""
     
-    # Detect migration scenarios
-    if [ "$traefik_running" = "true" ] && [ "$cloudflare_configured" = "true" ]; then
+    # Detect current configuration - both can be enabled
+    if [ "$traefik_enabled" = "true" ] && [ "$cloudflare_enabled" = "true" ]; then
         migration_needed=true
-        migration_type="traefik_to_cloudflare"
-    elif [ "$current_arch" = "cloudflare" ] && [ "$traefik_running" = "false" ]; then
-        migration_needed=true
-        migration_type="cloudflare_to_traefik"
-    elif [ "$current_arch" = "traefik" ] && [ "$cloudflare_configured" = "false" ]; then
+        migration_type="both_enabled"
+    elif [ "$traefik_enabled" = "true" ]; then
         migration_type="using_traefik"
-    elif [ "$current_arch" = "cloudflare" ]; then
+    elif [ "$cloudflare_enabled" = "true" ]; then
         migration_type="using_cloudflare"
+    else
+        migration_type="none_enabled"
     fi
     
     if [ "$migration_needed" = "true" ]; then
@@ -203,6 +184,33 @@ handle_migration() {
         echo "-------------------"
         
         case "$migration_type" in
+            both_enabled)
+                echo "${BLUE}ℹ️  Detected: Both Traefik and Cloudflare tunnel are enabled${NC}"
+                echo "   Running both simultaneously can cause conflicts and is not recommended."
+                echo ""
+                echo "   ${YELLOW}Choose one option:${NC}"
+                echo "   1. Keep Cloudflare tunnels only (recommended - better security)"
+                echo "   2. Keep Traefik only (local control)"
+                echo "   3. Continue with both (not recommended)"
+                echo ""
+                echo -n "Enter your choice [1-3]: "
+                read -r choice
+                case "$choice" in
+                    1)
+                        echo "${BLUE}ℹ️  Disabling Traefik, keeping Cloudflare tunnels${NC}"
+                        sed -i.bak "s/^ENABLE_TRAEFIK=.*/ENABLE_TRAEFIK=false/" .env
+                        migrate_to_cloudflare
+                        ;;
+                    2)
+                        echo "${BLUE}ℹ️  Disabling Cloudflare, keeping Traefik${NC}"
+                        sed -i.bak "s/^ENABLE_CLOUDFLARE_TUNNEL=.*/ENABLE_CLOUDFLARE_TUNNEL=false/" .env
+                        migrate_to_traefik
+                        ;;
+                    3|*)
+                        echo "${YELLOW}⚠️  Continuing with both enabled - monitor for conflicts${NC}"
+                        ;;
+                esac
+                ;;
             traefik_to_cloudflare)
                 echo "${BLUE}ℹ️  Detected: Traefik currently running + Cloudflare tunnel configured${NC}"
                 echo "   This suggests you're migrating from Traefik to Cloudflare tunnels."
@@ -254,7 +262,7 @@ handle_migration() {
     elif [ "$migration_type" != "" ]; then
         echo ""
         echo "${BLUE}ℹ️  Current Architecture: $(echo "$migration_type" | sed 's/_/ /g' | sed 's/using //')${NC}"
-        if [ "$rclone_configured" = "true" ]; then
+        if [ "$rclone_enabled" = "true" ]; then
             echo "${BLUE}ℹ️  Rclone cloud storage: Enabled${NC}"
         fi
     fi
@@ -574,20 +582,373 @@ fi
 
 # Function to detect timezone
 detect_timezone() {
+    # Detect from system (don't return .env value - that's not detection!)
     if [ -f /etc/timezone ]; then
         cat /etc/timezone
     elif [ -L /etc/localtime ]; then
-        readlink /etc/localtime | sed 's|/usr/share/zoneinfo/||'
+        # Handle both Linux and macOS paths
+        readlink /etc/localtime | sed 's|/usr/share/zoneinfo/||' | sed 's|/var/db/timezone/zoneinfo/||'
     elif command -v timedatectl &> /dev/null; then
         timedatectl show --property=Timezone --value
+    elif [ "$(uname)" = "Darwin" ]; then
+        # macOS timezone detection
+        if command -v systemsetup >/dev/null 2>&1; then
+            systemsetup -gettimezone 2>/dev/null | awk '{print $2}'
+        else
+            # Fall back to localtime parsing on macOS
+            if [ -L /etc/localtime ]; then
+                readlink /etc/localtime | sed 's|/var/db/timezone/zoneinfo/||'
+            else
+                echo "UTC"
+            fi
+        fi
     else
         echo "UTC"
     fi
 }
 
+# Function to read existing value from .env
+get_existing_value() {
+    local key="$1"
+    local default="$2"
+    if [ -f .env ]; then
+        local value=$(grep "^$key=" .env 2>/dev/null | cut -d'=' -f2- | sed 's/#.*//' | xargs || echo "$default")
+        # Return default if empty after comment removal
+        if [ -n "$value" ]; then
+            echo "$value"
+        else
+            echo "$default"
+        fi
+    else
+        echo "$default"
+    fi
+}
+
+# Function to ask user to keep existing value or configure new one
+ask_keep_or_configure() {
+    local description="$1"          # e.g., "Cloudflare tunnel token"
+    local env_key="$2"              # e.g., "CLOUDFLARE_TUNNEL_TOKEN"
+    local existing_value="$3"       # Current value from .env
+    local default_prompt="$4"       # Default for new setup (Y/n or y/N)
+    local extra_text="$5"           # Optional extra instructions (like doc links)
+    local validation_func="$6"      # Optional validation function name
+    
+    # Check if we have a valid existing value
+    if [ -n "$existing_value" ] && [ "$existing_value" != "your_tunnel_token_here" ] && [ "$existing_value" != "changeme" ]; then
+        echo "${BLUE}ℹ️  $description currently configured: ${YELLOW}$existing_value${NC}"
+        
+        # Simple Y/n validation with retry
+        while true; do
+            echo -n "Keep current $description configuration? [Y/n]: "
+            read -r keep_response
+            case "$keep_response" in
+                [Yy]|[Yy][Ee][Ss]|"")
+                    echo "${GREEN}✅ $description configuration kept${NC}"
+                    return 0
+                    ;;
+                [Nn]|[Nn][Oo])
+                    # User wants to change - break and continue to input section
+                    break
+                    ;;
+                *)
+                    echo "${RED}❌ Please enter 'y' for yes or 'n' for no${NC}"
+                    ;;
+            esac
+        done
+        
+        # User said no - get new value
+        # Show extra instructions if provided
+        if [ -n "$extra_text" ]; then
+            echo "$extra_text"
+        fi
+        get_validated_input "$description" "$env_key" "$validation_func"
+        return $?
+    else
+        # No existing value - ask if they want to configure
+        local should_configure=false
+        
+        # Simple Y/n validation with retry  
+        while true; do
+            echo -n "Do you want to configure $description? $default_prompt: "
+            read -r configure_response
+            case "$configure_response" in
+                [Yy]|[Yy][Ee][Ss])
+                    should_configure=true
+                    break
+                    ;;
+                [Nn]|[Nn][Oo])
+                    should_configure=false
+                    break
+                    ;;
+                "")
+                    # Empty response - use default
+                    if [[ "$default_prompt" == *"[Y/n]"* ]]; then
+                        should_configure=true  # Default to Yes
+                    else
+                        should_configure=false # Default to No
+                    fi
+                    break
+                    ;;
+                *)
+                    echo "${RED}❌ Please enter 'y' for yes or 'n' for no${NC}"
+                    ;;
+            esac
+        done
+        
+        if [ "$should_configure" = "true" ]; then
+            # Show extra instructions if provided
+            if [ -n "$extra_text" ]; then
+                echo "$extra_text"
+            fi
+            # Get new value with validation
+            get_validated_input "$description" "$env_key" "$validation_func"
+            return $?
+        else
+            echo "${BLUE}ℹ️  $description not configured${NC}"
+            return 1
+        fi
+    fi
+}
+
+# Function to get and validate user input
+get_validated_input() {
+    local description="$1"
+    local env_key="$2"
+    local validation_func="$3"
+    
+    while true; do
+        echo -n "Please provide $description: "
+        read -r new_value
+        
+        # If no validation function provided, accept any non-empty value
+        if [ -z "$validation_func" ]; then
+            if [ -n "$new_value" ]; then
+                sed -i.bak "s/^$env_key=.*/$env_key=$new_value/" .env
+                echo "${GREEN}✅ $description configured${NC}"
+                return 0
+            else
+                echo "${RED}❌ Value cannot be empty${NC}"
+            fi
+        else
+            # Call validation function with error handling
+            if command -v "$validation_func" >/dev/null 2>&1; then
+                if "$validation_func" "$new_value" 2>/dev/null; then
+                    # Escape special characters in sed replacement
+                    local safe_value=$(printf '%s\n' "$new_value" | sed 's/[[\.*^$()+?{|]/\\&/g')
+                    sed -i.bak "s/^$env_key=.*/$env_key=$safe_value/" .env
+                    echo "${GREEN}✅ $description configured${NC}"
+                    return 0
+                fi
+                # Validation function should print its own error message
+            else
+                echo "${RED}❌ Validation function '$validation_func' not found. Accepting any non-empty value.${NC}"
+                if [ -n "$new_value" ]; then
+                    local safe_value=$(printf '%s\n' "$new_value" | sed 's/[[\.*^$()+?{|]/\\&/g')
+                    sed -i.bak "s/^$env_key=.*/$env_key=$safe_value/" .env
+                    echo "${GREEN}✅ $description configured${NC}"
+                    return 0
+                else
+                    echo "${RED}❌ Value cannot be empty${NC}"
+                fi
+            fi
+        fi
+    done
+}
+
+# Validation functions
+validate_cloudflare_token() {
+    local token="$1"
+    if [ -n "$token" ] && [ ${#token} -gt 20 ]; then
+        return 0
+    else
+        echo "${RED}❌ Invalid token. Please enter a valid Cloudflare tunnel token${NC}"
+        return 1
+    fi
+}
+
+validate_ip_address() {
+    local ip="$1"
+    if [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        return 0
+    else
+        echo "${RED}❌ Invalid IP format. Please use format: 192.168.1.100${NC}"
+        return 1
+    fi
+}
+
+validate_scaling_number() {
+    local number="$1"
+    if [[ $number =~ ^[0-9]+$ ]] && [ "$number" -ge 1 ]; then
+        return 0
+    else
+        echo "${RED}❌ Please enter a valid number (1 or greater)${NC}"
+        return 1
+    fi
+}
+
+validate_url() {
+    local url="$1"
+    
+    # Check if URL is empty
+    if [ -z "$url" ]; then
+        echo "${RED}❌ URL cannot be empty${NC}"
+        return 1
+    fi
+    
+    # Basic domain validation - should be in format: domain.com or subdomain.domain.com
+    # Allow alphanumeric characters, hyphens, and dots
+    # Must have at least one dot and valid TLD pattern
+    if [[ "$url" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$ ]]; then
+        # Additional checks for common invalid patterns
+        if [[ "$url" =~ \.\. ]] || [[ "$url" =~ ^- ]] || [[ "$url" =~ -$ ]] || [[ "$url" =~ ^\. ]] || [[ "$url" =~ \.$  ]]; then
+            echo "${RED}❌ Invalid domain format. Use format like: example.com or subdomain.example.com${NC}"
+            return 1
+        fi
+        return 0
+    else
+        echo "${RED}❌ Invalid domain format. Use format like: example.com or subdomain.example.com${NC}"
+        echo "${BLUE}ℹ️  Examples: n8n.mydomain.com, webhook.example.org, mysite.io${NC}"
+        echo "${BLUE}ℹ️  Do not include 'https://' - just the domain name${NC}"
+        return 1
+    fi
+}
+
+validate_timezone() {
+    local tz="$1"
+    if [ -z "$tz" ]; then
+        echo "${RED}❌ Timezone cannot be empty${NC}"
+        return 1
+    fi
+    
+    # Strict timezone validation - check against known valid patterns
+    # Allow UTC and standard timezone formats (Continent/City or Continent/Region/City)
+    if [ "$tz" = "UTC" ] || [ "$tz" = "GMT" ]; then
+        return 0
+    elif [[ "$tz" =~ ^(Africa|America|Antarctica|Arctic|Asia|Atlantic|Australia|Europe|Indian|Pacific)/[A-Za-z_]+(/[A-Za-z_]+)?$ ]]; then
+        return 0
+    elif [[ "$tz" =~ ^(Brazil|Canada|Chile|Mexico|US)/[A-Za-z_]+$ ]]; then
+        return 0
+    else
+        echo "${RED}❌ Invalid timezone format. Use format like 'UTC', 'America/New_York', 'Europe/London'${NC}"
+        echo "${BLUE}ℹ️  Examples: UTC, America/New_York, Europe/London, Asia/Dubai, Australia/Sydney${NC}"
+        echo "${BLUE}ℹ️  Valid continents: Africa, America, Antarctica, Arctic, Asia, Atlantic, Australia, Europe, Indian, Pacific${NC}"
+        return 1
+    fi
+}
+
+# Function to configure external network in docker-compose.yml
+configure_external_network() {
+    local enable="$1"  # true to enable, false to disable
+    local network_name="$2"  # network name (only needed when enabling)
+    
+    if [ "$enable" = "true" ]; then
+        echo "${YELLOW}🔧 Enabling external network in docker-compose.yml...${NC}"
+        
+        # Uncomment the external network definition
+        sed -i.bak 's|^  #n8n-external:|  n8n-external:|' docker-compose.yml
+        sed -i.bak 's|^  #  external: true|    external: true|' docker-compose.yml
+        sed -i.bak 's|^  #  name: ${EXTERNAL_NETWORK_NAME:-n8n-external}|    name: ${EXTERNAL_NETWORK_NAME:-n8n-external}|' docker-compose.yml
+        
+        # Uncomment external network connections for all services
+        sed -i.bak 's|^    #- n8n-external|    - n8n-external|g' docker-compose.yml
+        
+        echo "${GREEN}✅ External network enabled in docker-compose.yml${NC}"
+    else
+        echo "${YELLOW}🔧 Disabling external network in docker-compose.yml...${NC}"
+        
+        # Comment out the external network definition
+        sed -i.bak 's|^  n8n-external:|  #n8n-external:|' docker-compose.yml
+        sed -i.bak 's|^    external: true|  #  external: true|' docker-compose.yml
+        sed -i.bak 's|^    name: ${EXTERNAL_NETWORK_NAME:-n8n-external}|  #  name: ${EXTERNAL_NETWORK_NAME:-n8n-external}|' docker-compose.yml
+        
+        # Comment out external network connections for all services
+        sed -i.bak 's|^    - n8n-external|    #- n8n-external|g' docker-compose.yml
+        
+        echo "${GREEN}✅ External network disabled in docker-compose.yml${NC}"
+    fi
+}
+
+# Function to get default from .env.example (handles both commented and uncommented)
+get_default_from_example() {
+    local key="$1"
+    local fallback="$2"
+    local result=""
+    
+    if [ -f .env.example ]; then
+        # Try uncommented first
+        result=$(grep "^$key=" .env.example 2>/dev/null | cut -d'=' -f2- | head -1)
+        
+        # If empty, try commented
+        if [ -z "$result" ]; then
+            result=$(grep "^#$key=" .env.example 2>/dev/null | cut -d'=' -f2- | head -1)
+        fi
+        
+        # If still empty, use fallback
+        if [ -z "$result" ]; then
+            result="$fallback"
+        fi
+    else
+        result="$fallback"
+    fi
+    
+    echo "$result"
+}
+
+# Function to validate directory with options to fix typo, create, or skip
+validate_directory() {
+    local description="$1"
+    local default_path="$2"
+    local skip_action="$3"  # What to do if user chooses to skip
+    
+    while true; do
+        echo -n "Enter $description [$default_path]: "
+        read -r dir_path
+        if [ -z "$dir_path" ]; then
+            dir_path="$default_path"
+        fi
+        
+        if [ -d "$dir_path" ]; then
+            echo "${GREEN}✅ Directory exists: $dir_path${NC}"
+            echo "$dir_path"
+            return 0
+        else
+            echo "${RED}❌ Directory does not exist: $dir_path${NC}"
+            echo "What would you like to do?"
+            echo "1. Re-enter path (fix typo)"
+            echo "2. Create the directory"
+            echo "3. $skip_action"
+            echo -n "Enter your choice [1-3]: "
+            read -r dir_choice
+            case "$dir_choice" in
+                1)
+                    # Continue the loop to re-prompt for path
+                    continue
+                    ;;
+                2)
+                    if mkdir -p "$dir_path" 2>/dev/null; then
+                        echo "${GREEN}✅ Created directory: $dir_path${NC}"
+                        echo "$dir_path"
+                        return 0
+                    else
+                        echo "${RED}❌ Failed to create directory. Please check permissions.${NC}"
+                        continue
+                    fi
+                    ;;
+                3|*)
+                    echo "${YELLOW}⚠️  $skip_action${NC}"
+                    return 1  # Return failure to indicate skip
+                    ;;
+            esac
+        fi
+    done
+}
+
 # Step 1: Environment file creation
 echo "${BLUE}📋 Environment Configuration${NC}"
 echo "----------------------------"
+
+# Check if we should preserve existing configuration
+PRESERVE_EXISTING_CONFIG=false
 
 if [ -f .env ]; then
     echo "${YELLOW}⚠️  .env file already exists.${NC}"
@@ -599,7 +960,8 @@ if [ -f .env ]; then
             echo "${GREEN}✅ Existing .env file removed.${NC}"
             ;;
         *)
-            echo "${BLUE}ℹ️  Using existing .env file. Some settings may not be updated.${NC}"
+            echo "${BLUE}ℹ️  Using existing .env file. Will preserve existing configuration.${NC}"
+            PRESERVE_EXISTING_CONFIG=true
             ;;
     esac
 fi
@@ -628,38 +990,128 @@ echo ""
 echo "${BLUE}🏗️  Environment Setup${NC}"
 echo "--------------------"
 
-while true; do
-    echo -n "Enter environment (dev/test/production) [dev]: "
-    read -r ENVIRONMENT_INPUT
-    if [ -z "$ENVIRONMENT_INPUT" ]; then
-        ENVIRONMENT="dev"
-        break
+if [ "$PRESERVE_EXISTING_CONFIG" = "true" ]; then
+    # Read existing environment from .env
+    EXISTING_ENVIRONMENT=$(grep "^ENVIRONMENT=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
+    if [ -n "$EXISTING_ENVIRONMENT" ]; then
+        echo "${BLUE}ℹ️  Found existing environment: $EXISTING_ENVIRONMENT${NC}"
+        echo -n "Keep existing environment ($EXISTING_ENVIRONMENT)? [Y/n]: "
+        read -r keep_env_response
+        if [ -z "$keep_env_response" ] || [[ "$keep_env_response" =~ ^[Yy] ]]; then
+            ENVIRONMENT="$EXISTING_ENVIRONMENT"
+            echo "${GREEN}✅ Using existing environment: $ENVIRONMENT${NC}"
+        else
+            # Ask for new environment
+            while true; do
+                echo -n "Enter new environment (dev/test/production): "
+                read -r ENVIRONMENT_INPUT
+                case "$ENVIRONMENT_INPUT" in
+                    dev|test|production)
+                        ENVIRONMENT="$ENVIRONMENT_INPUT"
+                        break
+                        ;;
+                    *)
+                        echo "${RED}❌ Invalid environment. Please enter 'dev', 'test', or 'production'${NC}"
+                        ;;
+                esac
+            done
+            sed -i.bak "s/^ENVIRONMENT=.*/ENVIRONMENT=$ENVIRONMENT/" .env
+            echo "${GREEN}✅ Environment updated to: $ENVIRONMENT${NC}"
+        fi
     else
-        case "$ENVIRONMENT_INPUT" in
-            dev|test|production)
-                ENVIRONMENT="$ENVIRONMENT_INPUT"
-                break
-                ;;
-            *)
-                echo "${RED}❌ Invalid environment. Please enter 'dev', 'test', or 'production'${NC}"
-                ;;
-        esac
+        echo "${YELLOW}⚠️  No environment found in existing .env${NC}"
+        ENVIRONMENT="dev"
+        sed -i.bak "s/^ENVIRONMENT=.*/ENVIRONMENT=$ENVIRONMENT/" .env
+        echo "${GREEN}✅ Environment set to default: $ENVIRONMENT${NC}"
     fi
-done
-echo "${GREEN}✅ Environment set to: $ENVIRONMENT${NC}"
-
-# Update environment in .env
-sed -i.bak "s/^ENVIRONMENT=.*/ENVIRONMENT=$ENVIRONMENT/" .env
+else
+    # New .env file - ask for environment
+    while true; do
+        echo -n "Enter environment (dev/test/production) [dev]: "
+        read -r ENVIRONMENT_INPUT
+        if [ -z "$ENVIRONMENT_INPUT" ]; then
+            ENVIRONMENT="dev"
+            break
+        else
+            case "$ENVIRONMENT_INPUT" in
+                dev|test|production)
+                    ENVIRONMENT="$ENVIRONMENT_INPUT"
+                    break
+                    ;;
+                *)
+                    echo "${RED}❌ Invalid environment. Please enter 'dev', 'test', or 'production'${NC}"
+                    ;;
+            esac
+        fi
+    done
+    echo "${GREEN}✅ Environment set to: $ENVIRONMENT${NC}"
+    # Update environment in .env
+    sed -i.bak "s/^ENVIRONMENT=.*/ENVIRONMENT=$ENVIRONMENT/" .env
+fi
 
 # Step 3: Secret generation
 echo ""
 echo "${BLUE}🔐 Secret Generation${NC}"
 echo "-------------------"
 
-echo -n "Do you want to generate secure random secrets? [Y/n]: "
-read -r secrets_response
-if [ -z "$secrets_response" ]; then
-    secrets_response="y"
+if [ "$PRESERVE_EXISTING_CONFIG" = "true" ]; then
+    # Check if secrets already exist and are secure
+    EXISTING_REDIS_PASSWORD=$(grep "^REDIS_PASSWORD=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
+    EXISTING_POSTGRES_PASSWORD=$(grep "^POSTGRES_PASSWORD=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
+    EXISTING_N8N_ENCRYPTION_KEY=$(grep "^N8N_ENCRYPTION_KEY=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
+    
+    # Check if existing secrets are secure (not defaults)
+    INSECURE_DEFAULTS="YOURPASSWORD YOURKEY changeme password 123456 redis_password postgres_password"
+    SECRETS_SECURE=true
+    
+    for default in $INSECURE_DEFAULTS; do
+        if [ "$EXISTING_REDIS_PASSWORD" = "$default" ] || [ "$EXISTING_POSTGRES_PASSWORD" = "$default" ] || [ "$EXISTING_N8N_ENCRYPTION_KEY" = "$default" ]; then
+            SECRETS_SECURE=false
+            break
+        fi
+    done
+    
+    if [ -n "$EXISTING_REDIS_PASSWORD" ] && [ -n "$EXISTING_POSTGRES_PASSWORD" ] && [ -n "$EXISTING_N8N_ENCRYPTION_KEY" ] && [ "$SECRETS_SECURE" = "true" ]; then
+        echo "${GREEN}✅ Found existing secure passwords${NC}"
+        echo -n "Keep existing passwords? [Y/n]: "
+        read -r keep_secrets_response
+        if [ -z "$keep_secrets_response" ] || [[ "$keep_secrets_response" =~ ^[Yy] ]]; then
+            echo "${BLUE}ℹ️  Using existing secure passwords${NC}"
+            # Skip secret generation
+            SKIP_SECRET_GENERATION=true
+        else
+            echo "${YELLOW}⚠️  Will generate new passwords${NC}"
+            SKIP_SECRET_GENERATION=false
+        fi
+    else
+        echo "${YELLOW}⚠️  Existing passwords appear insecure or incomplete${NC}"
+        echo "${BLUE}ℹ️  Will generate new secure passwords${NC}"
+        SKIP_SECRET_GENERATION=false
+    fi
+else
+    SKIP_SECRET_GENERATION=false
+fi
+
+if [ "$SKIP_SECRET_GENERATION" != "true" ]; then
+    while true; do
+        echo -n "Do you want to generate secure random secrets? [Y/n]: "
+        read -r secrets_response
+        case "$secrets_response" in
+            [Yy]|[Yy][Ee][Ss]|"")
+                secrets_response="y"
+                break
+                ;;
+            [Nn]|[Nn][Oo])
+                secrets_response="n"
+                break
+                ;;
+            *)
+                echo "${RED}❌ Please enter 'y' for yes or 'n' for no${NC}"
+                ;;
+        esac
+    done
+else
+    secrets_response="n"
 fi
 
 case "$secrets_response" in
@@ -711,29 +1163,30 @@ echo ""
 echo "${BLUE}🌍 Timezone Configuration${NC}"
 echo "-------------------------"
 
+# Get current timezone from .env and detect system timezone
+CURRENT_TZ=$(get_existing_value "GENERIC_TIMEZONE" "UTC")
 DETECTED_TZ=$(detect_timezone)
-echo "${BLUE}ℹ️  Detected timezone: $DETECTED_TZ${NC}"
 
-echo -n "Use detected timezone? [Y/n]: "
-read -r tz_response
-if [ -z "$tz_response" ]; then
-    tz_response="y"
+# Clean up detected timezone (remove weird macOS paths)
+if [[ "$DETECTED_TZ" == *"/var/db/timezone/zoneinfo/"* ]]; then
+    DETECTED_TZ=$(echo "$DETECTED_TZ" | sed 's|/var/db/timezone/zoneinfo/||')
 fi
 
-case "$tz_response" in
-    [Yy]|[Yy][Ee][Ss])
+echo "${BLUE}ℹ️  Current timezone in .env: $CURRENT_TZ${NC}"
+echo "${BLUE}ℹ️  System detected timezone: $DETECTED_TZ${NC}"
+
+while true; do
+    echo -n "Enter timezone [$DETECTED_TZ]: "
+    read -r TIMEZONE_INPUT
+    if [ -z "$TIMEZONE_INPUT" ]; then
         TIMEZONE="$DETECTED_TZ"
-        ;;
-    *)
-        echo -n "Enter timezone (e.g., America/New_York, Europe/London) [$DETECTED_TZ]: "
-        read -r TIMEZONE_INPUT
-        if [ -z "$TIMEZONE_INPUT" ]; then
-            TIMEZONE="$DETECTED_TZ"
-        else
-            TIMEZONE="$TIMEZONE_INPUT"
-        fi
-        ;;
-esac
+        break
+    elif validate_timezone "$TIMEZONE_INPUT"; then
+        TIMEZONE="$TIMEZONE_INPUT"
+        break
+    fi
+    # Validation failed, loop continues
+done
 
 # Update timezone in .env
 sed -i.bak "s|^GENERIC_TIMEZONE=.*|GENERIC_TIMEZONE=$TIMEZONE|" .env
@@ -745,21 +1198,17 @@ echo ""
 echo "${BLUE}🌐 URL Configuration${NC}"
 echo "-------------------"
 
-echo -n "Enter n8n main URL (without https://, e.g., n8n.yourdomain.com): "
-read -r N8N_HOST
-while [ -z "$N8N_HOST" ]; do
-    echo "${RED}❌ N8N URL is required${NC}"
-    echo -n "Enter n8n main URL (without https://): "
-    read -r N8N_HOST
-done
+# Read current URLs from .env
+CURRENT_N8N_HOST=$(get_existing_value "N8N_HOST" "")
+CURRENT_N8N_WEBHOOK=$(get_existing_value "N8N_WEBHOOK" "")
 
-echo -n "Enter webhook URL (without https://, e.g., webhook.yourdomain.com): "
-read -r N8N_WEBHOOK_HOST
-while [ -z "$N8N_WEBHOOK_HOST" ]; do
-    echo "${RED}❌ Webhook URL is required${NC}"
-    echo -n "Enter webhook URL (without https://): "
-    read -r N8N_WEBHOOK_HOST
-done
+# Configure URLs using the reusable function
+ask_keep_or_configure "n8n main URL (without https://)" "N8N_HOST" "$CURRENT_N8N_HOST" "[y/N]" "" "validate_url"
+ask_keep_or_configure "webhook URL (without https://)" "N8N_WEBHOOK" "$CURRENT_N8N_WEBHOOK" "[y/N]" "" "validate_url"
+
+# Read the final values for URL building
+N8N_HOST=$(get_existing_value "N8N_HOST" "")
+N8N_WEBHOOK_HOST=$(get_existing_value "N8N_WEBHOOK" "")
 
 # Build the full URLs (add https:// where needed)
 N8N_MAIN_URL="https://$N8N_HOST"
@@ -784,26 +1233,69 @@ echo ""
 echo "${BLUE}🌐 External Network Configuration${NC}"
 echo "---------------------------------"
 
-echo -n "Do you want to enable external network for connecting to other containers? [y/N]: "
-read -r external_network_response
-case "$external_network_response" in
-    [Yy]|[Yy][Ee][Ss])
-        echo -n "Enter external network name [n8n-external]: "
-        read -r EXTERNAL_NETWORK_NAME
-        if [ -z "$EXTERNAL_NETWORK_NAME" ]; then
-            EXTERNAL_NETWORK_NAME="n8n-external"
-        fi
-        
-        # Uncomment and update external network settings
-        sed -i.bak "s|^#EXTERNAL_NETWORK_NAME=.*|EXTERNAL_NETWORK_NAME=$EXTERNAL_NETWORK_NAME|" .env
-        
-        echo "${GREEN}✅ External network enabled: $EXTERNAL_NETWORK_NAME${NC}"
-        echo "${BLUE}ℹ️  You'll need to uncomment network sections in docker-compose.yml${NC}"
-        ;;
-    *)
-        echo "${BLUE}ℹ️  External network disabled${NC}"
-        ;;
-esac
+# Check current external network status
+CURRENT_EXTERNAL_NETWORK=$(get_existing_value "EXTERNAL_NETWORK_NAME" "")
+CURRENT_DEFAULT="n8n-external"
+
+if [ -n "$CURRENT_EXTERNAL_NETWORK" ]; then
+    echo "${BLUE}ℹ️  External network currently enabled: $CURRENT_EXTERNAL_NETWORK${NC}"
+    
+    # Simple Y/n validation with retry
+    while true; do
+        echo -n "Keep external network enabled? [Y/n]: "
+        read -r keep_response
+        case "$keep_response" in
+            [Yy]|[Yy][Ee][Ss]|"")
+                echo "${GREEN}✅ External network kept: $CURRENT_EXTERNAL_NETWORK${NC}"
+                EXTERNAL_NETWORK_NAME="$CURRENT_EXTERNAL_NETWORK"
+                break
+                ;;
+            [Nn]|[Nn][Oo])
+                # Comment out the external network setting and disable in docker-compose
+                sed -i.bak "s|^EXTERNAL_NETWORK_NAME=.*|#EXTERNAL_NETWORK_NAME=$CURRENT_DEFAULT|" .env
+                configure_external_network "false"
+                echo "${BLUE}ℹ️  External network disabled${NC}"
+                EXTERNAL_NETWORK_NAME=""
+                break
+                ;;
+            *)
+                echo "${RED}❌ Please enter 'y' for yes or 'n' for no${NC}"
+                ;;
+        esac
+    done
+else
+    # Simple Y/n validation with retry
+    while true; do
+        echo -n "Do you want to enable external network for connecting to other containers? [y/N]: "
+        read -r external_network_response
+        case "$external_network_response" in
+            [Yy]|[Yy][Ee][Ss])
+                echo -n "Enter external network name [$CURRENT_DEFAULT]: "
+                read -r EXTERNAL_NETWORK_NAME
+                if [ -z "$EXTERNAL_NETWORK_NAME" ]; then
+                    EXTERNAL_NETWORK_NAME="$CURRENT_DEFAULT"
+                fi
+                
+                # Uncomment and update external network settings in .env
+                sed -i.bak "s|^#EXTERNAL_NETWORK_NAME=.*|EXTERNAL_NETWORK_NAME=$EXTERNAL_NETWORK_NAME|" .env
+                
+                # Enable external network in docker-compose.yml
+                configure_external_network "true" "$EXTERNAL_NETWORK_NAME"
+                
+                echo "${GREEN}✅ External network enabled: $EXTERNAL_NETWORK_NAME${NC}"
+                break
+                ;;
+            [Nn]|[Nn][Oo]|"")
+                echo "${BLUE}ℹ️  External network disabled${NC}"
+                EXTERNAL_NETWORK_NAME=""
+                break
+                ;;
+            *)
+                echo "${RED}❌ Please enter 'y' for yes or 'n' for no${NC}"
+                ;;
+        esac
+    done
+fi
 
 # Step 7: Rclone Mount Integration
 echo ""
@@ -819,73 +1311,111 @@ case "$rclone_response" in
         echo "${BLUE}ℹ️  See documentation for rclone setup instructions${NC}"
         echo ""
         
-        while true; do
-            echo -n "Enter rclone data mount path [/mnt/rclone-data]: "
-            read -r RCLONE_DATA_MOUNT
-            if [ -z "$RCLONE_DATA_MOUNT" ]; then
-                RCLONE_DATA_MOUNT="/mnt/rclone-data"
-            fi
-            
-            if [ -d "$RCLONE_DATA_MOUNT" ]; then
-                echo "${GREEN}✅ Data mount directory exists${NC}"
-                break
-            else
-                echo "${RED}❌ Directory does not exist: $RCLONE_DATA_MOUNT${NC}"
-                echo -n "Do you want to create it? [y/N]: "
-                read -r create_dir_response
-                case "$create_dir_response" in
-                    [Yy]|[Yy][Ee][Ss])
-                        mkdir -p "$RCLONE_DATA_MOUNT" && echo "${GREEN}✅ Created directory${NC}" && break
-                        ;;
-                    *)
-                        echo "${YELLOW}⚠️  Skipping rclone integration${NC}"
+        # Initialize rclone enabled flag
+        RCLONE_ENABLED=true
+        
+        DEFAULT_DATA_MOUNT=$(get_default_from_example "RCLONE_DATA_MOUNT" "/mnt/rclone-data")
+        
+        # Validate data mount directory - avoid command substitution for interactive prompts
+        echo -n "Enter rclone data mount path [$DEFAULT_DATA_MOUNT]: "
+        read -r RCLONE_DATA_MOUNT
+        if [ -z "$RCLONE_DATA_MOUNT" ]; then
+            RCLONE_DATA_MOUNT="$DEFAULT_DATA_MOUNT"
+        fi
+        
+        if [ -d "$RCLONE_DATA_MOUNT" ]; then
+            echo "${GREEN}✅ Data mount configured: $RCLONE_DATA_MOUNT${NC}"
+        else
+            echo "${RED}❌ Directory does not exist: $RCLONE_DATA_MOUNT${NC}"
+            echo "What would you like to do?"
+            echo "1. Re-enter path"
+            echo "2. Create the directory"
+            echo "3. Skip rclone integration"
+            echo -n "Enter your choice [1-3]: "
+            read -r choice
+            case "$choice" in
+                1)
+                    echo -n "Enter rclone data mount path: "
+                    read -r RCLONE_DATA_MOUNT
+                    if [ ! -d "$RCLONE_DATA_MOUNT" ]; then
+                        echo "${RED}❌ Directory still doesn't exist, skipping rclone${NC}"
                         RCLONE_ENABLED=false
-                        break 2  # Break out of both loops
-                        ;;
-                esac
-            fi
-        done
+                    else
+                        echo "${GREEN}✅ Data mount configured: $RCLONE_DATA_MOUNT${NC}"
+                    fi
+                    ;;
+                2)
+                    if mkdir -p "$RCLONE_DATA_MOUNT" 2>/dev/null; then
+                        echo "${GREEN}✅ Created and configured data mount: $RCLONE_DATA_MOUNT${NC}"
+                    else
+                        echo "${RED}❌ Failed to create directory, skipping rclone${NC}"
+                        RCLONE_ENABLED=false
+                    fi
+                    ;;
+                3|*)
+                    echo "${YELLOW}⚠️  Skipping rclone integration${NC}"
+                    RCLONE_ENABLED=false
+                    ;;
+            esac
+        fi
         
         # Only continue with backup mount if data mount was successful
-        if [ "$RCLONE_ENABLED" != "false" ]; then
-        while true; do
-            echo -n "Enter rclone backup mount path [/mnt/rclone-backups]: "
+        if [ "$RCLONE_ENABLED" = "true" ]; then
+            DEFAULT_BACKUP_MOUNT=$(get_default_from_example "RCLONE_BACKUP_MOUNT" "/mnt/rclone-backups")
+            
+            echo -n "Enter rclone backup mount path [$DEFAULT_BACKUP_MOUNT]: "
             read -r RCLONE_BACKUP_MOUNT
             if [ -z "$RCLONE_BACKUP_MOUNT" ]; then
-                RCLONE_BACKUP_MOUNT="/mnt/rclone-backups"
+                RCLONE_BACKUP_MOUNT="$DEFAULT_BACKUP_MOUNT"
             fi
             
             if [ -d "$RCLONE_BACKUP_MOUNT" ]; then
-                echo "${GREEN}✅ Backup mount directory exists${NC}"
-                break
+                echo "${GREEN}✅ Backup mount configured: $RCLONE_BACKUP_MOUNT${NC}"
             else
                 echo "${RED}❌ Directory does not exist: $RCLONE_BACKUP_MOUNT${NC}"
-                echo -n "Do you want to create it? [y/N]: "
-                read -r create_backup_dir_response
-                case "$create_backup_dir_response" in
-                    [Yy]|[Yy][Ee][Ss])
-                        mkdir -p "$RCLONE_BACKUP_MOUNT" && echo "${GREEN}✅ Created directory${NC}" && break
+                echo "What would you like to do?"
+                echo "1. Re-enter path"
+                echo "2. Create the directory"
+                echo "3. Skip rclone integration"
+                echo -n "Enter your choice [1-3]: "
+                read -r choice
+                case "$choice" in
+                    1)
+                        echo -n "Enter rclone backup mount path: "
+                        read -r RCLONE_BACKUP_MOUNT
+                        if [ ! -d "$RCLONE_BACKUP_MOUNT" ]; then
+                            echo "${RED}❌ Directory still doesn't exist, skipping rclone${NC}"
+                            RCLONE_ENABLED=false
+                        else
+                            echo "${GREEN}✅ Backup mount configured: $RCLONE_BACKUP_MOUNT${NC}"
+                        fi
                         ;;
-                    *)
+                    2)
+                        if mkdir -p "$RCLONE_BACKUP_MOUNT" 2>/dev/null; then
+                            echo "${GREEN}✅ Created and configured backup mount: $RCLONE_BACKUP_MOUNT${NC}"
+                        else
+                            echo "${RED}❌ Failed to create directory, skipping rclone${NC}"
+                            RCLONE_ENABLED=false
+                        fi
+                        ;;
+                    3|*)
                         echo "${YELLOW}⚠️  Skipping rclone integration${NC}"
                         RCLONE_ENABLED=false
-                        break 2  # Break out of both loops
                         ;;
                 esac
             fi
-        done
+        fi
         
         # Only configure rclone if both mounts were successful
-        if [ "$RCLONE_ENABLED" != "false" ]; then
-            RCLONE_ENABLED=true
-            
-            # Uncomment and update rclone settings
-            sed -i.bak "s|^#RCLONE_DATA_MOUNT=.*|RCLONE_DATA_MOUNT=$RCLONE_DATA_MOUNT|" .env
-            sed -i.bak "s|^#RCLONE_BACKUP_MOUNT=.*|RCLONE_BACKUP_MOUNT=$RCLONE_BACKUP_MOUNT|" .env
+        if [ "$RCLONE_ENABLED" = "true" ]; then
+            # Update rclone settings
+            sed -i.bak "s|^RCLONE_DATA_MOUNT=.*|RCLONE_DATA_MOUNT=$RCLONE_DATA_MOUNT|" .env
+            sed -i.bak "s|^RCLONE_BACKUP_MOUNT=.*|RCLONE_BACKUP_MOUNT=$RCLONE_BACKUP_MOUNT|" .env
             
             echo "${GREEN}✅ Rclone integration enabled${NC}"
             echo "${BLUE}ℹ️  Make sure to mount your rclone remote before starting services${NC}"
-        fi
+        else
+            echo "${YELLOW}⚠️  Rclone integration skipped${NC}"
         fi
         ;;
     *)
@@ -899,110 +1429,82 @@ echo ""
 echo "${BLUE}☁️  Cloudflare Tunnel Configuration${NC}"
 echo "----------------------------------"
 
-echo -n "Do you want to configure Cloudflare Tunnel? [y/N]: "
-read -r cloudflare_response
-case "$cloudflare_response" in
-    [Yy]|[Yy][Ee][Ss])
-        echo "${BLUE}ℹ️  You can get your tunnel token from: https://dash.cloudflare.com/ → Zero Trust → Access → Tunnels${NC}"
-        while true; do
-            echo -n "Enter your Cloudflare tunnel token: "
-            read -r CLOUDFLARE_TOKEN
-            if [ -n "$CLOUDFLARE_TOKEN" ] && [ ${#CLOUDFLARE_TOKEN} -gt 20 ]; then
-                break
-            else
-                echo "${RED}❌ Invalid token. Please enter a valid Cloudflare tunnel token${NC}"
-            fi
-        done
-        
-        # Update Cloudflare token
-        sed -i.bak "s/^CLOUDFLARE_TUNNEL_TOKEN=.*/CLOUDFLARE_TUNNEL_TOKEN=$CLOUDFLARE_TOKEN/" .env
-        
-        echo "${GREEN}✅ Cloudflare tunnel configured${NC}"
-        ;;
-    *)
-        echo "${BLUE}ℹ️  Cloudflare tunnel not configured${NC}"
-        echo "${YELLOW}⚠️  You'll need to set CLOUDFLARE_TUNNEL_TOKEN manually in .env${NC}"
-        ;;
-esac
+# Configure Cloudflare tunnel using the reusable function
+CURRENT_CF_TOKEN=$(get_existing_value "CLOUDFLARE_TUNNEL_TOKEN" "")
+SETUP_GUIDE_URL=$(get_existing_value "DOCS_SETUP_GUIDE" "https://www.reddit.com/r/n8n/comments/1l9mi6k/major_update_to_n8nautoscaling_build_step_by_step/")
+
+CF_EXTRA_TEXT="${BLUE}ℹ️  For detailed Cloudflare tunnel setup instructions, visit:${NC}
+${CYAN}   $SETUP_GUIDE_URL${NC}
+
+${BLUE}ℹ️  You can also get your tunnel token from: https://dash.cloudflare.com/ → Zero Trust → Access → Tunnels${NC}"
+
+# Configure Cloudflare tunnel and handle the result
+if ask_keep_or_configure "Cloudflare tunnel" "CLOUDFLARE_TUNNEL_TOKEN" "$CURRENT_CF_TOKEN" "[Y/n]" "$CF_EXTRA_TEXT" "validate_cloudflare_token"; then
+    # Cloudflare tunnel configured successfully
+    echo "${GREEN}✅ Cloudflare tunnel will be used for external access${NC}"
+    sed -i.bak "s/^ENABLE_CLOUDFLARE_TUNNEL=.*/ENABLE_CLOUDFLARE_TUNNEL=true/" .env
+    sed -i.bak "s/^ENABLE_TRAEFIK=.*/ENABLE_TRAEFIK=false/" .env
+    echo "${BLUE}ℹ️  Traefik disabled (Cloudflare tunnel handles external access)${NC}"
+else
+    # Cloudflare tunnel declined or failed - use Traefik instead
+    echo "${YELLOW}⚠️  Cloudflare tunnel not configured${NC}"
+    echo "${BLUE}ℹ️  Enabling Traefik reverse proxy for external access${NC}"
+    sed -i.bak "s/^ENABLE_CLOUDFLARE_TUNNEL=.*/ENABLE_CLOUDFLARE_TUNNEL=false/" .env
+    sed -i.bak "s/^ENABLE_TRAEFIK=.*/ENABLE_TRAEFIK=true/" .env
+    echo "${GREEN}✅ Traefik reverse proxy will be used${NC}"
+    echo "${YELLOW}⚠️  Remember to configure firewall rules for ports 8082 and 8083${NC}"
+fi
 
 # Step 9: Tailscale Configuration
 echo ""
 echo "${BLUE}🔗 Tailscale Configuration${NC}"
 echo "-------------------------"
 
-echo -n "Do you want to configure Tailscale IP for PostgreSQL binding? [y/N]: "
-read -r tailscale_response
-case "$tailscale_response" in
-    [Yy]|[Yy][Ee][Ss])
-        echo "${BLUE}ℹ️  This binds PostgreSQL to your Tailscale IP for secure remote access${NC}"
-        echo "${BLUE}ℹ️  Find your Tailscale IP with: tailscale ip -4${NC}"
-        
-        while true; do
-            echo -n "Enter your Tailscale IP (e.g., 100.64.1.2): "
-            read -r TAILSCALE_IP
-            # Basic IP validation
-            if [[ $TAILSCALE_IP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-                break
-            else
-                echo "${RED}❌ Invalid IP format. Please use format: 192.168.1.100${NC}"
-            fi
-        done
-        
-        # Update Tailscale IP
-        sed -i.bak "s/^TAILSCALE_IP=.*/TAILSCALE_IP=$TAILSCALE_IP/" .env
-        
-        echo "${GREEN}✅ Tailscale IP configured: $TAILSCALE_IP${NC}"
-        echo "${BLUE}ℹ️  PostgreSQL will bind to: $TAILSCALE_IP:5432${NC}"
-        ;;
-    *)
-        echo "${BLUE}ℹ️  Tailscale not configured - PostgreSQL will bind to all interfaces${NC}"
-        ;;
-esac
+# Configure Tailscale IP using the reusable function
+CURRENT_TAILSCALE_IP=$(get_existing_value "TAILSCALE_IP" "")
+
+TS_EXTRA_TEXT="${BLUE}ℹ️  This binds PostgreSQL to your Tailscale IP for secure remote access${NC}
+${BLUE}ℹ️  Find your Tailscale IP with: tailscale ip -4${NC}"
+
+if ask_keep_or_configure "Tailscale IP" "TAILSCALE_IP" "$CURRENT_TAILSCALE_IP" "[y/N]" "$TS_EXTRA_TEXT" "validate_ip_address"; then
+    TAILSCALE_IP=$(get_existing_value "TAILSCALE_IP" "")
+    echo "${BLUE}ℹ️  PostgreSQL will bind to: $TAILSCALE_IP:5432${NC}"
+else
+    echo "${BLUE}ℹ️  Tailscale not configured - PostgreSQL will bind to all interfaces${NC}"
+fi
 
 # Step 10: Autoscaling Configuration
 echo ""
 echo "${BLUE}⚖️  Autoscaling Configuration${NC}"
 echo "----------------------------"
 
-echo "${BLUE}ℹ️  Current defaults: MIN=1, MAX=5, Scale Up at >5 jobs, Scale Down at <1 job${NC}"
+# Read current values from .env
+CURRENT_MIN_REPLICAS=$(get_existing_value "MIN_REPLICAS" "")
+CURRENT_MAX_REPLICAS=$(get_existing_value "MAX_REPLICAS" "")
+CURRENT_SCALE_UP_THRESHOLD=$(get_existing_value "SCALE_UP_QUEUE_THRESHOLD" "")
+CURRENT_SCALE_DOWN_THRESHOLD=$(get_existing_value "SCALE_DOWN_QUEUE_THRESHOLD" "")
+
+echo "${BLUE}ℹ️  Current settings: MIN=$CURRENT_MIN_REPLICAS, MAX=$CURRENT_MAX_REPLICAS, Scale Up at >$CURRENT_SCALE_UP_THRESHOLD jobs, Scale Down at <$CURRENT_SCALE_DOWN_THRESHOLD job${NC}"
 echo -n "Do you want to customize autoscaling parameters? [y/N]: "
 read -r autoscaling_response
 case "$autoscaling_response" in
     [Yy]|[Yy][Ee][Ss])
-        echo -n "Minimum worker replicas (always running) [1]: "
-        read -r MIN_REPLICAS
-        if [ -z "$MIN_REPLICAS" ]; then
-            MIN_REPLICAS="1"
-        fi
+        # Configure each autoscaling parameter using the reusable function
+        ask_keep_or_configure "minimum worker replicas (always running)" "MIN_REPLICAS" "$CURRENT_MIN_REPLICAS" "[y/N]" "" "validate_scaling_number"
+        ask_keep_or_configure "maximum worker replicas (scale limit)" "MAX_REPLICAS" "$CURRENT_MAX_REPLICAS" "[y/N]" "" "validate_scaling_number"
+        ask_keep_or_configure "scale up threshold (queue length)" "SCALE_UP_QUEUE_THRESHOLD" "$CURRENT_SCALE_UP_THRESHOLD" "[y/N]" "" "validate_scaling_number"
+        ask_keep_or_configure "scale down threshold (queue length)" "SCALE_DOWN_QUEUE_THRESHOLD" "$CURRENT_SCALE_DOWN_THRESHOLD" "[y/N]" "" "validate_scaling_number"
         
-        echo -n "Maximum worker replicas (scale limit) [5]: "
-        read -r MAX_REPLICAS
-        if [ -z "$MAX_REPLICAS" ]; then
-            MAX_REPLICAS="5"
-        fi
+        # Read the final values for display
+        FINAL_MIN=$(get_existing_value "MIN_REPLICAS" "")
+        FINAL_MAX=$(get_existing_value "MAX_REPLICAS" "")
+        FINAL_UP=$(get_existing_value "SCALE_UP_QUEUE_THRESHOLD" "")
+        FINAL_DOWN=$(get_existing_value "SCALE_DOWN_QUEUE_THRESHOLD" "")
         
-        echo -n "Scale up when queue length exceeds [5]: "
-        read -r SCALE_UP_THRESHOLD
-        if [ -z "$SCALE_UP_THRESHOLD" ]; then
-            SCALE_UP_THRESHOLD="5"
-        fi
-        
-        echo -n "Scale down when queue length drops below [1]: "
-        read -r SCALE_DOWN_THRESHOLD
-        if [ -z "$SCALE_DOWN_THRESHOLD" ]; then
-            SCALE_DOWN_THRESHOLD="1"
-        fi
-        
-        # Update autoscaling settings
-        sed -i.bak "s/^MIN_REPLICAS=.*/MIN_REPLICAS=$MIN_REPLICAS/" .env
-        sed -i.bak "s/^MAX_REPLICAS=.*/MAX_REPLICAS=$MAX_REPLICAS/" .env
-        sed -i.bak "s/^SCALE_UP_QUEUE_THRESHOLD=.*/SCALE_UP_QUEUE_THRESHOLD=$SCALE_UP_THRESHOLD/" .env
-        sed -i.bak "s/^SCALE_DOWN_QUEUE_THRESHOLD=.*/SCALE_DOWN_QUEUE_THRESHOLD=$SCALE_DOWN_THRESHOLD/" .env
-        
-        echo "${GREEN}✅ Autoscaling configured: $MIN_REPLICAS-$MAX_REPLICAS workers, up at >$SCALE_UP_THRESHOLD, down at <$SCALE_DOWN_THRESHOLD${NC}"
+        echo "${GREEN}✅ Autoscaling configured: $FINAL_MIN-$FINAL_MAX workers, up at >$FINAL_UP, down at <$FINAL_DOWN${NC}"
         ;;
     *)
-        echo "${BLUE}ℹ️  Using default autoscaling settings (1-5 workers)${NC}"
+        echo "${BLUE}ℹ️  Using current autoscaling settings ($CURRENT_MIN_REPLICAS-$CURRENT_MAX_REPLICAS workers)${NC}"
         ;;
 esac
 
@@ -1301,7 +1803,29 @@ case "$db_response" in
         echo "${GREEN}✅ Database setup completed${NC}"
         ;;
     *)
-        echo "${BLUE}ℹ️  Database creation skipped. Run '$CONTAINER_RUNTIME compose up -d' to create later${NC}"
+        echo "${YELLOW}⚠️  Database creation skipped${NC}"
+        echo ""
+        echo "${RED}❌ Important: You MUST create the database before running n8n${NC}"
+        echo ""
+        echo "${BLUE}Choose one of these options:${NC}"
+        echo ""
+        echo "${GREEN}Option 1 (Recommended): Re-run this setup script${NC}"
+        echo "   ${CYAN}./n8n-setup.sh${NC}"
+        echo "   └─ Choose 'Y' when asked about database creation"
+        echo ""
+        echo "${GREEN}Option 2: Use the database initialization service${NC}"
+        echo "   ${CYAN}$CONTAINER_RUNTIME compose up -d postgres postgres-init${NC}"
+        echo "   └─ Wait for initialization, then: ${CYAN}$CONTAINER_RUNTIME compose up -d${NC}"
+        echo ""
+        echo "${GREEN}Option 3: Manual database creation${NC}"
+        echo "   1. ${CYAN}$CONTAINER_RUNTIME compose up -d postgres${NC}"
+        echo "   2. ${CYAN}$CONTAINER_RUNTIME compose exec postgres psql -U postgres -c \"CREATE DATABASE n8n_${ENVIRONMENT};\"${NC}"
+        echo "   3. ${CYAN}$CONTAINER_RUNTIME compose exec postgres psql -U postgres -c \"CREATE USER n8n_${ENVIRONMENT}_user WITH PASSWORD '$(grep "^POSTGRES_PASSWORD=" .env | cut -d'=' -f2)';\"${NC}"
+        echo "   4. ${CYAN}$CONTAINER_RUNTIME compose exec postgres psql -U postgres -c \"GRANT ALL PRIVILEGES ON DATABASE n8n_${ENVIRONMENT} TO n8n_${ENVIRONMENT}_user;\"${NC}"
+        echo "   5. ${CYAN}$CONTAINER_RUNTIME compose exec postgres psql -U postgres -c \"ALTER DATABASE n8n_${ENVIRONMENT} OWNER TO n8n_${ENVIRONMENT}_user;\"${NC}"
+        echo "   6. ${CYAN}$CONTAINER_RUNTIME compose up -d${NC}"
+        echo ""
+        echo "${BLUE}💡 Without proper database setup, n8n services will fail to start${NC}"
         ;;
 esac
 
@@ -1432,11 +1956,18 @@ echo "   Timezone: $TIMEZONE (PostgreSQL uses UTC)"
 echo "   Container Runtime: $CONTAINER_RUNTIME"
 echo "   External Network: $([ -n "$EXTERNAL_NETWORK_NAME" ] && echo "$EXTERNAL_NETWORK_NAME" || echo "Disabled")"
 echo "   Rclone Mount: $([ "$RCLONE_ENABLED" = "true" ] && echo "Enabled" || echo "Disabled")"
-echo "   Cloudflare Tunnel: $([ -n "$CLOUDFLARE_TOKEN" ] && echo "Configured" || echo "Not configured")"
+CURRENT_CF_TUNNEL_TOKEN=$(get_existing_value "CLOUDFLARE_TUNNEL_TOKEN" "")
+CURRENT_CF_ENABLED=$(get_existing_value "ENABLE_CLOUDFLARE_TUNNEL" "false")
+CURRENT_TRAEFIK_ENABLED=$(get_existing_value "ENABLE_TRAEFIK" "false")
+
+echo "   Traefik: $([ "$CURRENT_TRAEFIK_ENABLED" = "true" ] && echo "Enabled" || echo "Disabled")"
+echo "   Cloudflare Tunnel: $([ "$CURRENT_CF_ENABLED" = "true" ] && [ -n "$CURRENT_CF_TUNNEL_TOKEN" ] && [ "$CURRENT_CF_TUNNEL_TOKEN" != "your_tunnel_token_here" ] && echo "Enabled" || echo "Disabled")"
 echo "   Tailscale: $([ -n "$TAILSCALE_IP" ] && echo "$TAILSCALE_IP" || echo "Not configured")"
 echo "   Main URL: $N8N_MAIN_URL"
 echo "   Webhook URL: $N8N_WEBHOOK_URL"
-echo "   Autoscaling: $([ -n "$MIN_REPLICAS" ] && echo "$MIN_REPLICAS-$MAX_REPLICAS workers" || echo "1-5 workers (default)")"
+CURRENT_MIN=$(get_existing_value "MIN_REPLICAS" "")
+CURRENT_MAX=$(get_existing_value "MAX_REPLICAS" "")
+echo "   Autoscaling: $([ -n "$MIN_REPLICAS" ] && echo "$MIN_REPLICAS-$MAX_REPLICAS workers" || echo "$CURRENT_MIN-$CURRENT_MAX workers")"
 echo ""
 echo "${BLUE}📝 Next Steps:${NC}"
 if [ -z "$CLOUDFLARE_TOKEN" ]; then

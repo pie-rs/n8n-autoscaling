@@ -334,7 +334,7 @@ docker compose up -d
     - **Environment Selection**: Prompts for dev/test/production environment
     - **Secure Secret Generation**: Generates cryptographically secure passwords, encryption keys, and tokens using user-provided salt
     - **Timezone Detection**: Automatically detects system timezone with option to override
-    - **External Network Configuration**: Optional external network setup for container integration
+    - **External Network Configuration**: Optional external network setup for container integration with automatic docker-compose.yml modifications
     - **Rclone Cloud Storage Integration**: Optional rclone cloud storage mount configuration with directory validation and creation
     - **Cloudflare Tunnel Configuration**: Optional Cloudflare tunnel token setup with validation
     - **Tailscale Integration**: Optional Tailscale IP configuration for secure PostgreSQL binding
@@ -345,6 +345,16 @@ docker compose up -d
     - **Setup Testing**: Starts services and runs health checks (Redis, PostgreSQL, container status)
     - **Systemd Integration**: On second run, offers to set up systemd services
     - **Setup Completion Tracking**: Uses flag in .env to track completion status
+
+### Latest Setup Script Improvements ✅
+
+20. **✅ Enhanced User Experience and Fixes**: Improved reliability and clarity
+    - **External Network Automation**: Automatically modifies docker-compose.yml when enabling/disabling external networks (no manual edits required)
+    - **Database Setup Clarity**: Clear warnings and multiple options when database creation is skipped (re-run setup, use postgres-init service, or manual creation)
+    - **Configuration Summary**: Accurate status display for Traefik and Cloudflare based on ENABLE flags and valid tokens
+    - **Input Validation**: Consistent Y/n validation patterns across all configuration sections
+    - **Timezone Validation**: Strict validation preventing invalid timezone entries
+    - **Comment Handling**: Proper stripping of comments from .env values in prompts
 
 ## 🎉 Production Requirements Complete
 

@@ -87,8 +87,8 @@ graph TD
 2. **Navigate to Zero Trust** → Access → Tunnels → Create tunnel
 3. **Copy your tunnel token** (starts with `eyJ...`)
 4. **Configure ingress rules** in the tunnel dashboard:
-   - Add `n8n.yourdomain.com` → `http://localhost:5678`
-   - Add `webhook.yourdomain.com` → `http://localhost:5679`
+   - Add `n8n.yourdomain.com` → `http://n8n:5678`
+   - Add `webhook.yourdomain.com` → `http://n8n-worker:5679`
 5. **Save configuration** - DNS records are created automatically
 
 ### Step 2: Deploy n8n
