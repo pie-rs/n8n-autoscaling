@@ -1536,6 +1536,31 @@ detect_rootless_mode() {
     fi
 }
 
+# Function to detect correct compose command
+detect_compose_command() {
+    local runtime="$1"
+    
+    if [ "$runtime" = "docker" ]; then
+        # For Docker, prefer 'docker compose' (v2) over 'docker-compose' (v1)
+        if docker compose version >/dev/null 2>&1; then
+            echo "docker compose"
+        elif command -v docker-compose >/dev/null 2>&1; then
+            echo "docker-compose"
+        else
+            echo ""
+        fi
+    elif [ "$runtime" = "podman" ]; then
+        # For Podman, prefer podman-compose over podman compose
+        if command -v podman-compose >/dev/null 2>&1; then
+            echo "podman-compose"
+        elif podman compose version >/dev/null 2>&1; then
+            echo "podman compose"
+        else
+            echo ""
+        fi
+    fi
+}
+
 # Detect container runtime and mode
 PODMAN_AVAILABLE=false
 DOCKER_AVAILABLE=false
@@ -1675,6 +1700,23 @@ case "$runtime_response" in
         ;;
 esac
 
+# Detect compose command for the selected runtime
+COMPOSE_CMD=$(detect_compose_command "$CONTAINER_RUNTIME")
+if [ -z "$COMPOSE_CMD" ]; then
+    echo "${RED}❌ No compose tool found for $CONTAINER_RUNTIME${NC}"
+    echo ""
+    echo "${BLUE}📋 Installation options:${NC}"
+    if [ "$CONTAINER_RUNTIME" = "podman" ]; then
+        echo "   Install podman-compose: ${CYAN}pip3 install --user podman-compose${NC}"
+        echo "   Or install docker-compose: ${CYAN}curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m) -o ~/.local/bin/docker-compose && chmod +x ~/.local/bin/docker-compose${NC}"
+    else
+        echo "   Install Docker Compose: ${CYAN}https://docs.docker.com/compose/install/${NC}"
+    fi
+    exit 1
+fi
+
+echo "${GREEN}✅ Using compose command: $COMPOSE_CMD${NC}"
+
 # Step 12: Create data directories
 echo ""
 echo "${BLUE}📁 Creating Data Directories${NC}"
@@ -1751,25 +1793,15 @@ case "$db_response" in
         fi
         
         # Start PostgreSQL and Redis
-        if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-            docker compose $COMPOSE_FILES up -d postgres redis
-        else
-            podman compose $COMPOSE_FILES up -d postgres redis
-        fi
+        $COMPOSE_CMD $COMPOSE_FILES up -d postgres redis
         
         echo "${YELLOW}⏳ Waiting for database to be ready...${NC}"
         sleep 10
         
         # Check if database already exists
         DB_EXISTS=false
-        if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-            if docker compose exec -T -e PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" postgres psql -U "${POSTGRES_ADMIN_USER:-postgres}" -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw "n8n_${ENVIRONMENT}"; then
-                DB_EXISTS=true
-            fi
-        else
-            if podman compose exec -T -e PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" postgres psql -U "${POSTGRES_ADMIN_USER:-postgres}" -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw "n8n_${ENVIRONMENT}"; then
-                DB_EXISTS=true
-            fi
+        if $COMPOSE_CMD exec -T -e PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" postgres psql -U "${POSTGRES_ADMIN_USER:-postgres}" -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw "n8n_${ENVIRONMENT}"; then
+            DB_EXISTS=true
         fi
         
         if [ "$DB_EXISTS" = "true" ]; then
@@ -1780,11 +1812,7 @@ case "$db_response" in
                 [Yy]|[Yy][Ee][Ss])
                     echo "${YELLOW}🔄 Recreating database...${NC}"
                     # Run database initialization
-                    if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-                        docker compose $COMPOSE_FILES up --force-recreate postgres-init
-                    else
-                        podman compose $COMPOSE_FILES up --force-recreate postgres-init
-                    fi
+                    $COMPOSE_CMD $COMPOSE_FILES up --force-recreate postgres-init
                     ;;
                 *)
                     echo "${BLUE}ℹ️  Using existing database${NC}"
@@ -1793,11 +1821,7 @@ case "$db_response" in
         else
             echo "${YELLOW}🔄 Creating database...${NC}"
             # Run database initialization
-            if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-                docker compose $COMPOSE_FILES up postgres-init
-            else
-                podman compose $COMPOSE_FILES up postgres-init
-            fi
+            $COMPOSE_CMD $COMPOSE_FILES up postgres-init
         fi
         
         echo "${GREEN}✅ Database setup completed${NC}"
@@ -1814,16 +1838,16 @@ case "$db_response" in
         echo "   └─ Choose 'Y' when asked about database creation"
         echo ""
         echo "${GREEN}Option 2: Use the database initialization service${NC}"
-        echo "   ${CYAN}$CONTAINER_RUNTIME compose up -d postgres postgres-init${NC}"
-        echo "   └─ Wait for initialization, then: ${CYAN}$CONTAINER_RUNTIME compose up -d${NC}"
+        echo "   ${CYAN}$COMPOSE_CMD up -d postgres postgres-init${NC}"
+        echo "   └─ Wait for initialization, then: ${CYAN}$COMPOSE_CMD up -d${NC}"
         echo ""
         echo "${GREEN}Option 3: Manual database creation${NC}"
-        echo "   1. ${CYAN}$CONTAINER_RUNTIME compose up -d postgres${NC}"
-        echo "   2. ${CYAN}$CONTAINER_RUNTIME compose exec postgres psql -U postgres -c \"CREATE DATABASE n8n_${ENVIRONMENT};\"${NC}"
-        echo "   3. ${CYAN}$CONTAINER_RUNTIME compose exec postgres psql -U postgres -c \"CREATE USER n8n_${ENVIRONMENT}_user WITH PASSWORD '$(grep "^POSTGRES_PASSWORD=" .env | cut -d'=' -f2)';\"${NC}"
-        echo "   4. ${CYAN}$CONTAINER_RUNTIME compose exec postgres psql -U postgres -c \"GRANT ALL PRIVILEGES ON DATABASE n8n_${ENVIRONMENT} TO n8n_${ENVIRONMENT}_user;\"${NC}"
-        echo "   5. ${CYAN}$CONTAINER_RUNTIME compose exec postgres psql -U postgres -c \"ALTER DATABASE n8n_${ENVIRONMENT} OWNER TO n8n_${ENVIRONMENT}_user;\"${NC}"
-        echo "   6. ${CYAN}$CONTAINER_RUNTIME compose up -d${NC}"
+        echo "   1. ${CYAN}$COMPOSE_CMD up -d postgres${NC}"
+        echo "   2. ${CYAN}$COMPOSE_CMD exec postgres psql -U postgres -c \"CREATE DATABASE n8n_${ENVIRONMENT};\"${NC}"
+        echo "   3. ${CYAN}$COMPOSE_CMD exec postgres psql -U postgres -c \"CREATE USER n8n_${ENVIRONMENT}_user WITH PASSWORD '$(grep "^POSTGRES_PASSWORD=" .env | cut -d'=' -f2)';\"${NC}"
+        echo "   4. ${CYAN}$COMPOSE_CMD exec postgres psql -U postgres -c \"GRANT ALL PRIVILEGES ON DATABASE n8n_${ENVIRONMENT} TO n8n_${ENVIRONMENT}_user;\"${NC}"
+        echo "   5. ${CYAN}$COMPOSE_CMD exec postgres psql -U postgres -c \"ALTER DATABASE n8n_${ENVIRONMENT} OWNER TO n8n_${ENVIRONMENT}_user;\"${NC}"
+        echo "   6. ${CYAN}$COMPOSE_CMD up -d${NC}"
         echo ""
         echo "${BLUE}💡 Without proper database setup, n8n services will fail to start${NC}"
         ;;
@@ -1863,11 +1887,7 @@ case "$test_response" in
         
         # Start all services
         echo "${BLUE}ℹ️  Starting with: $COMPOSE_FILES${NC}"
-        if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-            docker compose $COMPOSE_FILES up -d
-        else
-            podman compose $COMPOSE_FILES up -d
-        fi
+        $COMPOSE_CMD $COMPOSE_FILES up -d
         
         echo "${YELLOW}⏳ Waiting for services to start...${NC}"
         sleep 30
@@ -1876,44 +1896,23 @@ case "$test_response" in
         echo "${YELLOW}🔍 Running basic health checks...${NC}"
         
         # Check if containers are running
-        if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-            RUNNING_CONTAINERS=$(docker compose $COMPOSE_FILES ps --services --filter "status=running" 2>/dev/null | wc -l | tr -d ' ')
-            TOTAL_CONTAINERS=$(docker compose $COMPOSE_FILES ps --services 2>/dev/null | wc -l | tr -d ' ')
-        else
-            RUNNING_CONTAINERS=$(podman compose $COMPOSE_FILES ps --services --filter "status=running" 2>/dev/null | wc -l | tr -d ' ')
-            TOTAL_CONTAINERS=$(podman compose $COMPOSE_FILES ps --services 2>/dev/null | wc -l | tr -d ' ')
-        fi
+        RUNNING_CONTAINERS=$($COMPOSE_CMD $COMPOSE_FILES ps --services --filter "status=running" 2>/dev/null | wc -l | tr -d ' ')
+        TOTAL_CONTAINERS=$($COMPOSE_CMD $COMPOSE_FILES ps --services 2>/dev/null | wc -l | tr -d ' ')
         
         echo "${BLUE}ℹ️  Running containers: $RUNNING_CONTAINERS/$TOTAL_CONTAINERS${NC}"
         
         # Check Redis connectivity
-        if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-            if docker compose $COMPOSE_FILES exec -T redis redis-cli -a "${REDIS_PASSWORD:-}" ping 2>/dev/null | grep -q "PONG"; then
-                echo "${GREEN}✅ Redis is responding${NC}"
-            else
-                echo "${RED}❌ Redis connection failed${NC}"
-            fi
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T redis redis-cli -a "${REDIS_PASSWORD:-}" ping 2>/dev/null | grep -q "PONG"; then
+            echo "${GREEN}✅ Redis is responding${NC}"
         else
-            if podman compose $COMPOSE_FILES exec -T redis redis-cli -a "${REDIS_PASSWORD:-}" ping 2>/dev/null | grep -q "PONG"; then
-                echo "${GREEN}✅ Redis is responding${NC}"
-            else
-                echo "${RED}❌ Redis connection failed${NC}"
-            fi
+            echo "${RED}❌ Redis connection failed${NC}"
         fi
         
         # Check PostgreSQL connectivity
-        if [ "$CONTAINER_RUNTIME" = "docker" ]; then
-            if docker compose $COMPOSE_FILES exec -T postgres pg_isready -U "${POSTGRES_ADMIN_USER:-postgres}" 2>/dev/null; then
-                echo "${GREEN}✅ PostgreSQL is responding${NC}"
-            else
-                echo "${RED}❌ PostgreSQL connection failed${NC}"
-            fi
+        if $COMPOSE_CMD $COMPOSE_FILES exec -T postgres pg_isready -U "${POSTGRES_ADMIN_USER:-postgres}" 2>/dev/null; then
+            echo "${GREEN}✅ PostgreSQL is responding${NC}"
         else
-            if podman compose $COMPOSE_FILES exec -T postgres pg_isready -U "${POSTGRES_ADMIN_USER:-postgres}" 2>/dev/null; then
-                echo "${GREEN}✅ PostgreSQL is responding${NC}"
-            else
-                echo "${RED}❌ PostgreSQL connection failed${NC}"
-            fi
+            echo "${RED}❌ PostgreSQL connection failed${NC}"
         fi
         
         echo ""
