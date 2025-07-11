@@ -164,119 +164,27 @@ Reset options include:
 - **Just Data**: Keeps configuration but removes all database/app data  
 - **Just .env**: Removes configuration file (warning: existing data won't be accessible)
 
-## Rclone Cloud Storage Setup
+## Rclone Cloud Storage Integration
 
-The setup wizard can optionally configure rclone mounts for cloud storage integration. Rclone supports 70+ cloud storage providers including Google Drive, OneDrive, Dropbox, AWS S3, and many more.
+Optional cloud storage support for data and backups using rclone (70+ providers supported).
 
-### Installing Rclone
+### Quick Setup
+1. **Install rclone**: `curl https://rclone.org/install.sh | sudo bash`
+2. **Configure provider**: `rclone config` (setup your Google Drive, S3, etc.)
+3. **Create mounts**: Setup automatic mounting for data and backups
+4. **Enable in n8n**: Uncomment rclone variables in `.env` and use rclone compose override
 
-## Do this first if you want to use one or more mounts for data and backups
+**Supported Providers**: Google Drive, OneDrive, Dropbox, AWS S3, Azure Blob, Backblaze B2, SFTP, and many more.
 
-**Download Latest Version:**
-```bash
-# Download and install latest rclone
-curl https://rclone.org/install.sh | sudo bash
-```
+### 🔒 Security Recommendation
+**Use rootless containers** (Podman/Docker) for best security and simplified permissions with rclone mounts.
 
-**Or install via package manager:**
-```bash
-# Ubuntu/Debian
-sudo apt install rclone
-
-# macOS
-brew install rclone
-
-# CentOS/RHEL/Fedora
-sudo dnf install rclone
-```
-
-### Configure Your Cloud Storage Backend
-
-**1. Run rclone config:**
-```bash
-rclone config
-```
-
-**2. Create a new remote:**
-- Choose `n` for "New remote"
-- Give it a name (e.g., `mydrive`, `mycloud`)
-- Select your storage provider from the list
-- Follow the provider-specific setup instructions
-
-**3. Test your configuration:**
-```bash
-# List files in your remote
-rclone ls yourremotename:
-
-# Test a specific folder
-rclone ls yourremotename:/path/to/folder
-```
-
-### Popular Backend Configuration Links
-
-- **Google Drive**: [https://rclone.org/drive/](https://rclone.org/drive/)
-- **OneDrive**: [https://rclone.org/onedrive/](https://rclone.org/onedrive/)
-- **Dropbox**: [https://rclone.org/dropbox/](https://rclone.org/dropbox/)
-- **AWS S3**: [https://rclone.org/s3/](https://rclone.org/s3/)
-- **All providers**: [https://rclone.org/overview/](https://rclone.org/overview/)
-
-### Setting Up Mounts
-
-**Create mount points:**
-```bash
-# Create directories for mounting
-sudo mkdir -p /mnt/rclone-data /mnt/rclone-backups
-sudo chown $USER:$USER /mnt/rclone-data /mnt/rclone-backups
-```
-
-**Mount your remote:**
-```bash
-# Mount your cloud storage
-rclone mount yourremotename:/data /mnt/rclone-data --daemon
-rclone mount yourremotename:/backups /mnt/rclone-backups --daemon
-
-# Or mount with additional options for better performance - highly recommend reading the docs or asking an LLM for some good settings.
-rclone mount yourremotename:/data /mnt/rclone-data \
-  --vfs-cache-mode writes \
-  --vfs-cache-max-age 1h \
-  --daemon
-```
-
-**Verify mounts:**
-```bash
-# Check if mounted successfully
-df -h | grep rclone
-ls /mnt/rclone-data
-```
-
-### Automatic Mounting on Boot
-
-**Create systemd service for automatic mounting:**
-```bash
-# Create service file
-sudo tee /etc/systemd/system/rclone-mount.service > /dev/null <<EOF
-[Unit]
-Description=Rclone Mount
-After=network.target
-
-[Service]
-Type=notify
-ExecStart=/usr/bin/rclone mount yourremotename:/data /mnt/rclone-data --vfs-cache-mode writes --vfs-cache-max-age 1h
-ExecStop=/bin/fusermount -u /mnt/rclone-data
-Restart=always
-User=$USER
-Group=$USER
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Enable and start the service
-sudo systemctl enable rclone-mount.service
-sudo systemctl start rclone-mount.service
-```
-
-**Note**: During the n8n setup wizard, you'll be prompted to configure mount paths. Make sure your rclone mounts are active before running the setup.
+📖 **Detailed Setup Guide**: [docs/rclone-mounts.md](docs/rclone-mounts.md)
+- Provider-specific examples (Google Drive, S3, OneDrive, SFTP)
+- Docker vs Podman considerations
+- Performance tuning for media files
+- Systemd service configuration
+- Troubleshooting common issues
 
 ## Configuration
 

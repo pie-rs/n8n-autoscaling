@@ -8,7 +8,7 @@ See @README.md for project overview
 - @~/docs/architecture.md
 
 # project specifications
-- @~/docs/project.spec.md
+- @~/docs/project-spec.md
 
 # Individual Preferences
 - @~/.claude/CLAUDE.md
