@@ -41,7 +41,9 @@ reset_environment() {
             
             # Stop all containers
             echo "${BLUE}Stopping all containers...${NC}"
+            # Try both docker and podman
             docker compose down -v 2>/dev/null || true
+            podman compose down 2>/dev/null || true
             
             # Remove data directories
             echo "${BLUE}Removing data directories...${NC}"
@@ -55,13 +57,17 @@ reset_environment() {
             echo "${BLUE}Removing .env file...${NC}"
             rm -f .env .env.bak
             
-            # Prune Docker resources
-            echo -n "Do you want to prune Docker networks and volumes? [y/N]: "
+            # Prune container resources
+            echo -n "Do you want to prune container networks and volumes? [y/N]: "
             read -r prune_response
             case "$prune_response" in
                 [Yy]|[Yy][Ee][Ss])
-                    docker network prune -f
-                    docker volume prune -f
+                    echo "${BLUE}Pruning container resources...${NC}"
+                    # Try both docker and podman
+                    docker network prune -f 2>/dev/null || true
+                    docker volume prune -f 2>/dev/null || true
+                    podman network prune -f 2>/dev/null || true
+                    podman volume prune -f 2>/dev/null || true
                     ;;
             esac
             
@@ -117,12 +123,359 @@ if [ -d "Data/Postgres/pgdata" ] || [ -d "Data/Redis" ] || [ -d "Data/n8n" ] || 
     DATA_EXISTS=true
 fi
 
+# Function to detect existing deployment architecture
+detect_deployment_architecture() {
+    local current_arch=""
+    
+    # Check if containers are running
+    local containers_running=false
+    if command -v docker >/dev/null 2>&1; then
+        if docker compose ps --quiet 2>/dev/null | grep -q .; then
+            containers_running=true
+        fi
+    elif command -v podman >/dev/null 2>&1; then
+        if podman compose ps --quiet 2>/dev/null | grep -q .; then
+            containers_running=true
+        fi
+    fi
+    
+    # Check for Traefik container
+    local traefik_running=false
+    if [ "$containers_running" = "true" ]; then
+        if docker ps --format "table {{.Names}}" 2>/dev/null | grep -q traefik || \
+           podman ps --format "table {{.Names}}" 2>/dev/null | grep -q traefik; then
+            traefik_running=true
+            current_arch="traefik"
+        fi
+    fi
+    
+    # Check for Cloudflare tunnel in .env
+    local cloudflare_configured=false
+    if [ -f .env ]; then
+        local cf_token=$(grep "^CLOUDFLARE_TUNNEL_TOKEN=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
+        if [ -n "$cf_token" ] && [ "$cf_token" != "your_tunnel_token_here" ]; then
+            cloudflare_configured=true
+            if [ "$current_arch" = "" ]; then
+                current_arch="cloudflare"
+            fi
+        fi
+    fi
+    
+    # Check for rclone configuration
+    local rclone_configured=false
+    if [ -f .env ]; then
+        local rclone_data=$(grep "^RCLONE_DATA_MOUNT=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
+        if [ -n "$rclone_data" ]; then
+            rclone_configured=true
+        fi
+    fi
+    
+    echo "$current_arch,$traefik_running,$cloudflare_configured,$rclone_configured"
+}
+
+# Function to handle architecture migration
+handle_migration() {
+    local arch_info=$(detect_deployment_architecture)
+    local current_arch=$(echo "$arch_info" | cut -d',' -f1)
+    local traefik_running=$(echo "$arch_info" | cut -d',' -f2)
+    local cloudflare_configured=$(echo "$arch_info" | cut -d',' -f3)
+    local rclone_configured=$(echo "$arch_info" | cut -d',' -f4)
+    
+    local migration_needed=false
+    local migration_type=""
+    
+    # Detect migration scenarios
+    if [ "$traefik_running" = "true" ] && [ "$cloudflare_configured" = "true" ]; then
+        migration_needed=true
+        migration_type="traefik_to_cloudflare"
+    elif [ "$current_arch" = "cloudflare" ] && [ "$traefik_running" = "false" ]; then
+        migration_needed=true
+        migration_type="cloudflare_to_traefik"
+    elif [ "$current_arch" = "traefik" ] && [ "$cloudflare_configured" = "false" ]; then
+        migration_type="using_traefik"
+    elif [ "$current_arch" = "cloudflare" ]; then
+        migration_type="using_cloudflare"
+    fi
+    
+    if [ "$migration_needed" = "true" ]; then
+        echo ""
+        echo "${YELLOW}🔄 Migration Required${NC}"
+        echo "-------------------"
+        
+        case "$migration_type" in
+            traefik_to_cloudflare)
+                echo "${BLUE}ℹ️  Detected: Traefik currently running + Cloudflare tunnel configured${NC}"
+                echo "   This suggests you're migrating from Traefik to Cloudflare tunnels."
+                echo ""
+                echo "   ${GREEN}Benefits of migration:${NC}"
+                echo "   • Better security (zero open ports)"
+                echo "   • Built-in DDoS protection"
+                echo "   • Automatic HTTPS certificates"
+                echo "   • No need for port forwarding"
+                echo ""
+                echo "   ${YELLOW}Migration will:${NC}"
+                echo "   • Stop Traefik container (no longer needed)"
+                echo "   • Switch to direct cloudflared tunnel"
+                echo "   • Remove unused Traefik resources"
+                echo ""
+                echo -n "Do you want to migrate to Cloudflare tunnels now? [Y/n]: "
+                read -r migrate_response
+                if [ -z "$migrate_response" ] || [[ "$migrate_response" =~ ^[Yy] ]]; then
+                    migrate_to_cloudflare
+                else
+                    echo "${BLUE}ℹ️  Continuing with current Traefik setup${NC}"
+                fi
+                ;;
+            cloudflare_to_traefik)
+                echo "${BLUE}ℹ️  Detected: Cloudflare tunnel configured but no Traefik running${NC}"
+                echo "   You can migrate from Cloudflare tunnels back to Traefik reverse proxy."
+                echo ""
+                echo "   ${GREEN}Benefits of Traefik:${NC}"
+                echo "   • Local SSL certificate management"
+                echo "   • Full control over routing"
+                echo "   • Works without external dependencies"
+                echo "   • Built-in dashboard and monitoring"
+                echo ""
+                echo "   ${YELLOW}Migration will:${NC}"
+                echo "   • Start Traefik reverse proxy"
+                echo "   • Disable Cloudflare tunnel mode"
+                echo "   • Expose ports 8082, 8083 for access"
+                echo "   • Remove cloudflared dependency"
+                echo ""
+                echo -n "Do you want to migrate to Traefik reverse proxy? [y/N]: "
+                read -r migrate_response
+                if [[ "$migrate_response" =~ ^[Yy] ]]; then
+                    migrate_to_traefik
+                else
+                    echo "${BLUE}ℹ️  Continuing with current Cloudflare tunnel setup${NC}"
+                fi
+                ;;
+        esac
+    elif [ "$migration_type" != "" ]; then
+        echo ""
+        echo "${BLUE}ℹ️  Current Architecture: $(echo "$migration_type" | sed 's/_/ /g' | sed 's/using //')${NC}"
+        if [ "$rclone_configured" = "true" ]; then
+            echo "${BLUE}ℹ️  Rclone cloud storage: Enabled${NC}"
+        fi
+    fi
+}
+
+# Function to perform Traefik to Cloudflare migration
+migrate_to_cloudflare() {
+    echo ""
+    echo "${YELLOW}🔄 Migrating to Cloudflare tunnels...${NC}"
+    
+    # Detect container runtime
+    local runtime=""
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+        runtime="docker"
+    elif command -v podman >/dev/null 2>&1 && podman compose version >/dev/null 2>&1; then
+        runtime="podman"
+    else
+        echo "${RED}❌ No compatible container runtime found${NC}"
+        return 1
+    fi
+    
+    # Stop all services gracefully
+    echo "${BLUE}1. Stopping existing services...${NC}"
+    if [ "$runtime" = "docker" ]; then
+        docker compose down
+    else
+        podman compose down
+    fi
+    
+    # Clean up Traefik resources
+    echo "${BLUE}2. Cleaning up Traefik resources...${NC}"
+    
+    # Remove Traefik container if it exists
+    if [ "$runtime" = "docker" ]; then
+        docker rm -f n8n-autoscaling_traefik_1 2>/dev/null || true
+        docker rm -f n8n-autoscaling-traefik-1 2>/dev/null || true
+    else
+        podman rm -f n8n-autoscaling_traefik_1 2>/dev/null || true
+        podman rm -f n8n-autoscaling-traefik-1 2>/dev/null || true
+    fi
+    
+    # Optionally remove Traefik volume
+    echo -n "Remove Traefik data volume (certificates will be lost)? [y/N]: "
+    read -r remove_volume_response
+    case "$remove_volume_response" in
+        [Yy]|[Yy][Ee][Ss])
+            if [ "$runtime" = "docker" ]; then
+                docker volume rm n8n-autoscaling_traefik_data 2>/dev/null || true
+            else
+                podman volume rm n8n-autoscaling_traefik_data 2>/dev/null || true
+            fi
+            echo "${GREEN}✅ Traefik volume removed${NC}"
+            ;;
+        *)
+            echo "${BLUE}ℹ️  Traefik volume preserved${NC}"
+            ;;
+    esac
+    
+    # Clean up unused networks and resources
+    echo "${BLUE}3. Cleaning up unused resources...${NC}"
+    if [ "$runtime" = "docker" ]; then
+        docker network prune -f >/dev/null 2>&1 || true
+        docker system prune -f >/dev/null 2>&1 || true
+    else
+        podman network prune -f >/dev/null 2>&1 || true
+        podman system prune -f >/dev/null 2>&1 || true
+    fi
+    
+    # Start with new architecture
+    echo "${BLUE}4. Starting with Cloudflare tunnel architecture...${NC}"
+    
+    # Build compose file list
+    local compose_files="-f docker-compose.yml"
+    
+    # Check for rclone
+    local rclone_data=$(grep "^RCLONE_DATA_MOUNT=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
+    if [ -n "$rclone_data" ]; then
+        compose_files="$compose_files -f docker-compose.rclone.yml"
+        echo "${BLUE}ℹ️  Including rclone cloud storage support${NC}"
+    fi
+    
+    # Add Cloudflare override
+    compose_files="$compose_files -f docker-compose.cloudflare.yml"
+    
+    echo "${BLUE}ℹ️  Starting with: $compose_files${NC}"
+    if [ "$runtime" = "docker" ]; then
+        docker compose $compose_files up -d
+    else
+        podman compose $compose_files up -d
+    fi
+    
+    echo ""
+    echo "${GREEN}✅ Migration to Cloudflare tunnels completed!${NC}"
+    echo ""
+    echo "${BLUE}📋 New Architecture:${NC}"
+    echo "   • Cloudflare tunnel handles all external traffic"
+    echo "   • No open ports on your server"
+    echo "   • Built-in DDoS protection and HTTPS"
+    echo "   • Traefik disabled (no longer needed)"
+    echo ""
+    echo "${YELLOW}⚠️  Important:${NC}"
+    echo "   • Configure ingress rules in Cloudflare Zero Trust dashboard"
+    echo "   • Test your n8n and webhook URLs"
+    echo "   • Update any firewall rules (you can close ports 8082, 8083)"
+    echo ""
+}
+
+# Function to perform Cloudflare to Traefik migration
+migrate_to_traefik() {
+    echo ""
+    echo "${YELLOW}🔄 Migrating to Traefik reverse proxy...${NC}"
+    
+    # Detect container runtime
+    local runtime=""
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+        runtime="docker"
+    elif command -v podman >/dev/null 2>&1 && podman compose version >/dev/null 2>&1; then
+        runtime="podman"
+    else
+        echo "${RED}❌ No compatible container runtime found${NC}"
+        return 1
+    fi
+    
+    # Stop all services gracefully
+    echo "${BLUE}1. Stopping existing services...${NC}"
+    if [ "$runtime" = "docker" ]; then
+        docker compose down
+    else
+        podman compose down
+    fi
+    
+    # Clean up Cloudflare resources
+    echo "${BLUE}2. Cleaning up Cloudflare resources...${NC}"
+    
+    # Remove cloudflared container if it exists
+    if [ "$runtime" = "docker" ]; then
+        docker rm -f n8n-autoscaling_cloudflared_1 2>/dev/null || true
+        docker rm -f n8n-autoscaling-cloudflared-1 2>/dev/null || true
+    else
+        podman rm -f n8n-autoscaling_cloudflared_1 2>/dev/null || true
+        podman rm -f n8n-autoscaling-cloudflared-1 2>/dev/null || true
+    fi
+    
+    # Optionally disable Cloudflare tunnel token
+    echo -n "Remove Cloudflare tunnel token from .env? [y/N]: "
+    read -r remove_token_response
+    case "$remove_token_response" in
+        [Yy]|[Yy][Ee][Ss])
+            sed -i.bak 's/^CLOUDFLARE_TUNNEL_TOKEN=.*/#CLOUDFLARE_TUNNEL_TOKEN=your_tunnel_token_here/' .env
+            echo "${GREEN}✅ Cloudflare tunnel token disabled${NC}"
+            ;;
+        *)
+            echo "${BLUE}ℹ️  Cloudflare tunnel token preserved (can re-enable later)${NC}"
+            ;;
+    esac
+    
+    # Clean up unused networks and resources
+    echo "${BLUE}3. Cleaning up unused resources...${NC}"
+    if [ "$runtime" = "docker" ]; then
+        docker network prune -f >/dev/null 2>&1 || true
+        docker system prune -f >/dev/null 2>&1 || true
+    else
+        podman network prune -f >/dev/null 2>&1 || true
+        podman system prune -f >/dev/null 2>&1 || true
+    fi
+    
+    # Start with new architecture
+    echo "${BLUE}4. Starting with Traefik reverse proxy architecture...${NC}"
+    
+    # Build compose file list (exclude cloudflare override)
+    local compose_files="-f docker-compose.yml"
+    
+    # Check for rclone
+    local rclone_data=$(grep "^RCLONE_DATA_MOUNT=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
+    if [ -n "$rclone_data" ]; then
+        compose_files="$compose_files -f docker-compose.rclone.yml"
+        echo "${BLUE}ℹ️  Including rclone cloud storage support${NC}"
+    fi
+    
+    # Note: We explicitly do NOT add docker-compose.cloudflare.yml
+    
+    echo "${BLUE}ℹ️  Starting with: $compose_files${NC}"
+    if [ "$runtime" = "docker" ]; then
+        docker compose $compose_files up -d
+    else
+        podman compose $compose_files up -d
+    fi
+    
+    echo ""
+    echo "${GREEN}✅ Migration to Traefik reverse proxy completed!${NC}"
+    echo ""
+    echo "${BLUE}📋 New Architecture:${NC}"
+    echo "   • Traefik reverse proxy handles routing"
+    echo "   • n8n UI available on port 8082"
+    echo "   • n8n webhooks available on port 8083"
+    echo "   • Local SSL certificate management"
+    echo "   • Cloudflare tunnel disabled"
+    echo ""
+    echo "${YELLOW}⚠️  Important:${NC}"
+    echo "   • Configure your firewall to allow ports 8082, 8083"
+    echo "   • Set up port forwarding if behind NAT"
+    echo "   • Consider setting up Let's Encrypt for SSL certificates"
+    echo "   • Update DNS records to point to your server IP"
+    echo "   • Test your n8n and webhook URLs"
+    echo ""
+    echo "${BLUE}📋 Next Steps:${NC}"
+    echo "   • Access n8n UI: http://your-server-ip:8082"
+    echo "   • Access webhooks: http://your-server-ip:8083"
+    echo "   • Traefik dashboard: http://your-server-ip:8080 (if enabled)"
+    echo ""
+}
+
 # Show main menu based on current state
 if [ "$DATA_EXISTS" = "true" ]; then
     if [ -f .env ]; then
         SETUP_COMPLETE_FLAG=$(grep "^SETUP_COMPLETED=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
         if [ "$SETUP_COMPLETE_FLAG" = "true" ]; then
             echo "${GREEN}✅ Setup has been completed previously.${NC}"
+            
+            # Check for migration opportunities
+            handle_migration
         else
             echo "${YELLOW}⚠️  Found partial setup (.env exists but setup not completed)${NC}"
         fi
@@ -135,15 +488,16 @@ if [ "$DATA_EXISTS" = "true" ]; then
     echo "1. Run full setup wizard"
     echo "2. Reset environment (clean start)"
     if [ "$SETUP_COMPLETE_FLAG" = "true" ]; then
-        echo "3. Set up systemd services"
-        echo "4. Exit"
+        echo "3. Change architecture (Traefik ↔ Cloudflare)"
+        echo "4. Set up systemd services"
+        echo "5. Exit"
     else
         echo "3. Exit"
     fi
     echo ""
     
     if [ "$SETUP_COMPLETE_FLAG" = "true" ]; then
-        echo -n "Enter your choice [1-4]: "
+        echo -n "Enter your choice [1-5]: "
     else
         echo -n "Enter your choice [1-3]: "
     fi
@@ -160,6 +514,51 @@ if [ "$DATA_EXISTS" = "true" ]; then
             ;;
         3)
             if [ "$SETUP_COMPLETE_FLAG" = "true" ]; then
+                echo "${BLUE}🔄 Architecture Migration${NC}"
+                echo "---------------------"
+                echo ""
+                
+                # Detect current architecture
+                local arch_info=$(detect_deployment_architecture)
+                local current_arch=$(echo "$arch_info" | cut -d',' -f1)
+                local cloudflare_configured=$(echo "$arch_info" | cut -d',' -f3)
+                
+                if [ "$current_arch" = "cloudflare" ] || [ "$cloudflare_configured" = "true" ]; then
+                    echo "${BLUE}Current: Cloudflare tunnels${NC}"
+                    echo "Available: Migrate to Traefik reverse proxy"
+                    echo ""
+                    echo -n "Migrate to Traefik? [y/N]: "
+                    read -r migrate_choice
+                    if [[ "$migrate_choice" =~ ^[Yy] ]]; then
+                        migrate_to_traefik
+                    fi
+                else
+                    echo "${BLUE}Current: Traefik reverse proxy${NC}"
+                    echo "Available: Migrate to Cloudflare tunnels"
+                    echo ""
+                    echo -n "Do you have a Cloudflare tunnel token? [y/N]: "
+                    read -r has_token
+                    if [[ "$has_token" =~ ^[Yy] ]]; then
+                        echo -n "Enter your Cloudflare tunnel token: "
+                        read -r cf_token
+                        if [ -n "$cf_token" ]; then
+                            # Update .env with new token
+                            sed -i.bak "s|^CLOUDFLARE_TUNNEL_TOKEN=.*|CLOUDFLARE_TUNNEL_TOKEN=$cf_token|" .env
+                            echo "${GREEN}✅ Cloudflare token configured${NC}"
+                            migrate_to_cloudflare
+                        fi
+                    else
+                        echo "${YELLOW}ℹ️  You need a Cloudflare tunnel token to migrate${NC}"
+                        echo "   Create one at: https://dash.cloudflare.com → Zero Trust → Access → Tunnels"
+                    fi
+                fi
+                exit 0
+            else
+                exit 0
+            fi
+            ;;
+        4)
+            if [ "$SETUP_COMPLETE_FLAG" = "true" ]; then
                 echo "${BLUE}🔧 Setting up systemd services...${NC}"
                 ./generate-systemd.sh
                 exit 0
@@ -167,7 +566,7 @@ if [ "$DATA_EXISTS" = "true" ]; then
                 exit 0
             fi
             ;;
-        4|*)
+        5|*)
             exit 0
             ;;
     esac

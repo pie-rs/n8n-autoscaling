@@ -263,6 +263,7 @@ services:
       # These are defaults from monitor.Dockerfile, can be overridden here if needed
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
       - QUEUE_NAME_PREFIX=${QUEUE_NAME_PREFIX}
       - QUEUE_NAME=${QUEUE_NAME}
       - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS}

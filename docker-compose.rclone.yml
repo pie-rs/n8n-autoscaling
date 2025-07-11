@@ -11,13 +11,16 @@
 # 3. Mount your rclone remote before starting services
 # 4. Ensure the mount points exist and are accessible
 
+# NOTE: This file should only be used when RCLONE_DATA_MOUNT and RCLONE_BACKUP_MOUNT 
+# are properly set in your .env file. If variables are empty, podman-compose will fail.
+
 services:
   n8n:
     volumes:
-      - ${RCLONE_DATA_MOUNT}:/rclone-data:rw
-      - ${RCLONE_BACKUP_MOUNT}:/rclone-backups:rw
+      - "${RCLONE_DATA_MOUNT}:/rclone-data:rw"
+      - "${RCLONE_BACKUP_MOUNT}:/rclone-backups:rw"
 
   n8n-worker:
     volumes:
-      - ${RCLONE_DATA_MOUNT}:/rclone-data:rw
-      - ${RCLONE_BACKUP_MOUNT}:/rclone-backups:rw
+      - "${RCLONE_DATA_MOUNT}:/rclone-data:rw"
+      - "${RCLONE_BACKUP_MOUNT}:/rclone-backups:rw"

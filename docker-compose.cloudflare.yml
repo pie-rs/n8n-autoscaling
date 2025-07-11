@@ -8,30 +8,27 @@
 #   Internet → Cloudflare → cloudflared → n8n services (direct)
 #   No reverse proxy, no open ports, maximum security
 
-volumes:
-  # Remove traefik_data volume as it's not needed
-  traefik_data: null
+# No additional volumes needed - traefik_data volume will be ignored
 
 services:
-  # Remove Traefik entirely - not needed with Cloudflare tunnels
-  traefik: null
-
   # Configure n8n services to work directly with cloudflared
   n8n:
-    labels: []  # Remove all Traefik labels
+    labels: {}  # Remove all Traefik labels
     ports:
       # Only expose ports locally for debugging if needed
       # Cloudflare tunnel connects directly to container port 5678
       - "127.0.0.1:5678:5678"  # n8n UI (localhost only)
 
   n8n-webhook:
-    labels: []  # Remove all Traefik labels  
+    labels: {}  # Remove all Traefik labels  
     ports:
       # Webhook service accessible through cloudflared
       - "127.0.0.1:5679:5678"  # n8n webhook (localhost only)
 
   # Cloudflared service for direct tunnel connection
   cloudflared:
+    image: cloudflare/cloudflared:latest
+    platform: linux/amd64
     depends_on:
       - n8n
       - n8n-webhook
