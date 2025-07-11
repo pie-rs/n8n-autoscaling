@@ -1792,6 +1792,10 @@ case "$db_response" in
             COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.cloudflare.yml"
         fi
         
+        # Stop any existing containers to avoid port conflicts
+        echo "${BLUE}🧹 Stopping any existing containers...${NC}"
+        $COMPOSE_CMD $COMPOSE_FILES down --remove-orphans 2>/dev/null || true
+        
         # Start PostgreSQL and Redis
         $COMPOSE_CMD $COMPOSE_FILES up -d postgres redis
         
