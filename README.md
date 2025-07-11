@@ -20,7 +20,11 @@ This solution provides:
 ✅ **Multi-Platform**: Auto-detects Docker/Podman, ARM64/AMD64  
 ✅ **Enterprise Ready**: Backup/restore, monitoring, Tailscale VPN support  
 
+This work is an extension of the amazing original setup made by @conor-is-my-name. He detail the further setup here:-
+
 📖 **Detailed Guide**: https://www.reddit.com/r/n8n/comments/1l9mi6k/major_update_to_n8nautoscaling_build_step_by_step/
+
+When I get around to it I will update the how to in this repo to include more of that information.
 
 ## Architecture Overview
 
