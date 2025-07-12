@@ -131,6 +131,74 @@ ask_prune_resources() {
     esac
 }
 
+# Function to remove directory with rootless container permissions
+remove_rootless_directory() {
+    local dir="$1"
+    local container_runtime="${CONTAINER_RUNTIME:-}"
+    
+    # Auto-detect container runtime if not set
+    if [ -z "$container_runtime" ]; then
+        if command -v podman &> /dev/null; then
+            container_runtime="podman"
+        elif command -v docker &> /dev/null; then
+            container_runtime="docker"
+        else
+            echo "${RED}❌ No container runtime found for cleanup${NC}"
+            return 1
+        fi
+    fi
+    
+    # First try normal removal
+    if rm -rf "$dir" 2>/dev/null; then
+        return 0
+    fi
+    
+    # If that fails, we need to handle rootless permissions
+    echo "${BLUE}ℹ️  Handling rootless permissions for $dir...${NC}"
+    
+    # For rootless containers, we can use the container runtime to remove files
+    # This works because the container can access its own UID-mapped files
+    if [ -d "$dir" ]; then
+        # Use a temporary alpine container to remove the directory with proper permissions
+        if [ "$container_runtime" = "podman" ]; then
+            podman run --rm -v "$(pwd)/$dir:/data:Z" alpine:latest sh -c "rm -rf /data/*" 2>/dev/null || true
+            podman run --rm -v "$(pwd)/$(dirname "$dir"):/data:Z" alpine:latest sh -c "rm -rf /data/$(basename "$dir")" 2>/dev/null || true
+        else
+            docker run --rm -v "$(pwd)/$dir:/data" alpine:latest sh -c "rm -rf /data/*" 2>/dev/null || true
+            docker run --rm -v "$(pwd)/$(dirname "$dir"):/data" alpine:latest sh -c "rm -rf /data/$(basename "$dir")" 2>/dev/null || true
+        fi
+        
+        # Try to remove the empty directory
+        rmdir "$dir" 2>/dev/null || true
+        
+        # If directory still exists, it might need parent-level removal
+        if [ -d "$dir" ]; then
+            local parent_dir=$(dirname "$dir")
+            local dir_name=$(basename "$dir")
+            if [ "$container_runtime" = "podman" ]; then
+                podman run --rm -v "$(pwd)/$parent_dir:/data:Z" alpine:latest sh -c "rm -rf /data/$dir_name" 2>/dev/null || true
+            else
+                docker run --rm -v "$(pwd)/$parent_dir:/data" alpine:latest sh -c "rm -rf /data/$dir_name" 2>/dev/null || true
+            fi
+        fi
+        
+        # Final check - if directory still exists and we have sudo, offer to use it
+        if [ -d "$dir" ] && command -v sudo &> /dev/null; then
+            echo "${YELLOW}⚠️  Directory $dir still exists. It may require elevated permissions.${NC}"
+            echo -n "Use sudo to remove it? [y/N]: "
+            read -r use_sudo
+            case "$use_sudo" in
+                [Yy]|[Yy][Ee][Ss])
+                    sudo rm -rf "$dir" 2>/dev/null || echo "${RED}❌ Failed to remove $dir even with sudo${NC}"
+                    ;;
+                *)
+                    echo "${YELLOW}⚠️  Directory $dir not removed - manual cleanup may be required${NC}"
+                    ;;
+            esac
+        fi
+    fi
+}
+
 # Function to reset environment  
 reset_environment() {
     echo "${YELLOW}⚠️  WARNING: This will delete all data and configuration!${NC}"
@@ -153,11 +221,11 @@ reset_environment() {
             
             # Remove data directories
             echo "${BLUE}Removing data directories...${NC}"
-            rm -rf Data/Postgres/pgdata 2>/dev/null || true
-            rm -rf Data/Redis/* 2>/dev/null || true
-            rm -rf Data/n8n/* 2>/dev/null || true
-            rm -rf Data/n8n-webhook/* 2>/dev/null || true
-            rm -rf Data/Traefik/* 2>/dev/null || true
+            remove_rootless_directory "Data/Postgres/pgdata"
+            remove_rootless_directory "Data/Redis"
+            remove_rootless_directory "Data/n8n"
+            remove_rootless_directory "Data/n8n-webhook"
+            remove_rootless_directory "Data/Traefik"
             
             # Remove .env file
             echo "${BLUE}Removing .env file...${NC}"
@@ -186,11 +254,11 @@ reset_environment() {
             
             # Remove data directories
             echo "${BLUE}Removing data directories...${NC}"
-            rm -rf Data/Postgres/pgdata 2>/dev/null || true
-            rm -rf Data/Redis/* 2>/dev/null || true
-            rm -rf Data/n8n/* 2>/dev/null || true
-            rm -rf Data/n8n-webhook/* 2>/dev/null || true
-            rm -rf Data/Traefik/* 2>/dev/null || true
+            remove_rootless_directory "Data/Postgres/pgdata"
+            remove_rootless_directory "Data/Redis"
+            remove_rootless_directory "Data/n8n"
+            remove_rootless_directory "Data/n8n-webhook"
+            remove_rootless_directory "Data/Traefik"
             
             # Ask about pruning for partial reset too
             ask_prune_resources
