@@ -60,7 +60,56 @@ echo "${CYAN}🚀 n8n-autoscaling Setup Wizard${NC}"
 echo "================================"
 echo ""
 
-# Function to reset environment
+# Function to stop all containers aggressively during reset
+stop_all_containers_force() {
+    echo "${BLUE}Stopping all containers...${NC}"
+    
+    # Try with all override files (covers all possible combinations)
+    local all_overrides="-f docker-compose.yml -f docker-compose.podman.yml -f docker-compose.cloudflare.yml -f docker-compose.rclone.yml"
+    
+    # Try both docker and podman with all overrides
+    docker compose $all_overrides down -v 2>/dev/null || true
+    podman-compose $all_overrides down 2>/dev/null || true
+    
+    # Fallback to basic compose down
+    docker compose down -v 2>/dev/null || true  
+    podman-compose down 2>/dev/null || true
+    
+    # Force stop any remaining n8n containers
+    docker ps -a --filter "name=n8n" -q | xargs -r docker stop 2>/dev/null || true
+    docker ps -a --filter "name=n8n" -q | xargs -r docker rm 2>/dev/null || true
+    podman ps -a --filter "name=n8n" -q | xargs -r podman stop 2>/dev/null || true
+    podman ps -a --filter "name=n8n" -q | xargs -r podman rm 2>/dev/null || true
+}
+
+# Function to ask about pruning resources
+ask_prune_resources() {
+    echo ""
+    echo -n "Do you want to prune container networks and volumes? [y/N]: "
+    read -r prune_response
+    case "$prune_response" in
+        [Yy]|[Yy][Ee][Ss])
+            echo -n "Also prune unused containers? [y/N]: "
+            read -r prune_containers_response
+            
+            echo "${BLUE}Pruning container resources...${NC}"
+            docker network prune -f 2>/dev/null || true
+            docker volume prune -f 2>/dev/null || true
+            podman network prune -f 2>/dev/null || true
+            podman volume prune -f 2>/dev/null || true
+            
+            case "$prune_containers_response" in
+                [Yy]|[Yy][Ee][Ss])
+                    docker container prune -f 2>/dev/null || true
+                    podman container prune -f 2>/dev/null || true
+                    ;;
+            esac
+            echo "${GREEN}✅ Container resources pruned${NC}"
+            ;;
+    esac
+}
+
+# Function to reset environment  
 reset_environment() {
     echo "${YELLOW}⚠️  WARNING: This will delete all data and configuration!${NC}"
     echo ""
@@ -77,11 +126,8 @@ reset_environment() {
         1)
             echo "${YELLOW}🔄 Resetting everything...${NC}"
             
-            # Stop all containers
-            echo "${BLUE}Stopping all containers...${NC}"
-            # Try both docker and podman
-            docker compose down -v 2>/dev/null || true
-            podman compose down 2>/dev/null || true
+            # Stop all containers aggressively
+            stop_all_containers_force
             
             # Remove data directories
             echo "${BLUE}Removing data directories...${NC}"
@@ -95,19 +141,8 @@ reset_environment() {
             echo "${BLUE}Removing .env file...${NC}"
             rm -f .env .env.bak
             
-            # Prune container resources
-            echo -n "Do you want to prune container networks and volumes? [y/N]: "
-            read -r prune_response
-            case "$prune_response" in
-                [Yy]|[Yy][Ee][Ss])
-                    echo "${BLUE}Pruning container resources...${NC}"
-                    # Try both docker and podman
-                    docker network prune -f 2>/dev/null || true
-                    docker volume prune -f 2>/dev/null || true
-                    podman network prune -f 2>/dev/null || true
-                    podman volume prune -f 2>/dev/null || true
-                    ;;
-            esac
+            # Ask about pruning
+            ask_prune_resources
             
             echo "${GREEN}✅ Environment reset complete${NC}"
             echo ""
@@ -124,9 +159,8 @@ reset_environment() {
         2)
             echo "${YELLOW}🔄 Resetting data directories...${NC}"
             
-            # Stop containers first
-            echo "${BLUE}Stopping all containers...${NC}"
-            docker compose down 2>/dev/null || true
+            # Stop containers aggressively
+            stop_all_containers_force
             
             # Remove data directories
             echo "${BLUE}Removing data directories...${NC}"
@@ -135,6 +169,9 @@ reset_environment() {
             rm -rf Data/n8n/* 2>/dev/null || true
             rm -rf Data/n8n-webhook/* 2>/dev/null || true
             rm -rf Data/Traefik/* 2>/dev/null || true
+            
+            # Ask about pruning for partial reset too
+            ask_prune_resources
             
             echo "${GREEN}✅ Data directories reset complete${NC}"
             exit 0
