@@ -36,24 +36,46 @@ build_compose_files() {
     # Add rclone override if enabled
     if [ "$rclone_enabled" = "true" ]; then
         compose_files="$compose_files -f docker-compose.rclone.yml"
-        echo "${BLUE}ℹ️  Including rclone cloud storage support${NC}"
     fi
     
     # Add architecture-specific override
     if [ "$cloudflare_enabled" = "true" ]; then
         compose_files="$compose_files -f docker-compose.cloudflare.yml"
-        echo "${BLUE}ℹ️  Using Cloudflare tunnels (Traefik disabled for security)${NC}"
-    elif [ "$traefik_enabled" = "true" ]; then
-        echo "${YELLOW}⚠️  Using Traefik reverse proxy (consider Cloudflare tunnels for better security)${NC}"
     fi
     
     # Add Podman override for rootless compatibility
     if [ "$runtime" = "podman" ]; then
         compose_files="$compose_files -f docker-compose.podman.yml"
-        echo "${BLUE}ℹ️  Including Podman rootless compatibility overrides${NC}"
     fi
     
     echo "$compose_files"
+}
+
+# Helper function to display compose files info
+display_compose_info() {
+    local runtime="$1"
+    
+    # Get architecture info from existing function
+    local arch_info=$(detect_deployment_architecture)
+    local current_arch=$(echo "$arch_info" | cut -d',' -f1)
+    local traefik_enabled=$(echo "$arch_info" | cut -d',' -f2)
+    local cloudflare_enabled=$(echo "$arch_info" | cut -d',' -f3)
+    local rclone_enabled=$(echo "$arch_info" | cut -d',' -f4)
+    
+    # Display info messages
+    if [ "$rclone_enabled" = "true" ]; then
+        echo "${BLUE}ℹ️  Including rclone cloud storage support${NC}"
+    fi
+    
+    if [ "$cloudflare_enabled" = "true" ]; then
+        echo "${BLUE}ℹ️  Using Cloudflare tunnels (Traefik disabled for security)${NC}"
+    elif [ "$traefik_enabled" = "true" ]; then
+        echo "${YELLOW}⚠️  Using Traefik reverse proxy (consider Cloudflare tunnels for better security)${NC}"
+    fi
+    
+    if [ "$runtime" = "podman" ]; then
+        echo "${BLUE}ℹ️  Including Podman rootless compatibility overrides${NC}"
+    fi
 }
 
 echo "${CYAN}🚀 n8n-autoscaling Setup Wizard${NC}"
@@ -410,6 +432,9 @@ migrate_to_cloudflare() {
     # Build compose file list
     local compose_files=$(build_compose_files "$runtime")
     
+    # Display compose info
+    display_compose_info "$runtime"
+    
     echo "${BLUE}ℹ️  Starting with: $compose_files${NC}"
     if [ "$runtime" = "docker" ]; then
         docker compose $compose_files up -d
@@ -497,6 +522,9 @@ migrate_to_traefik() {
     
     # Build compose file list 
     local compose_files=$(build_compose_files "$runtime")
+    
+    # Display compose info
+    display_compose_info "$runtime"
     
     echo "${BLUE}ℹ️  Starting with: $compose_files${NC}"
     if [ "$runtime" = "docker" ]; then
@@ -1927,6 +1955,9 @@ case "$test_response" in
         
         # Build compose file list based on enabled features
         COMPOSE_FILES=$(build_compose_files "$CONTAINER_RUNTIME")
+        
+        # Display compose info
+        display_compose_info "$CONTAINER_RUNTIME"
         
         # Start all services
         echo "${BLUE}ℹ️  Starting with: $COMPOSE_FILES${NC}"

@@ -25,3 +25,8 @@ services:
   traefik:
     volumes:
       - traefik_data:/data:Z,U
+  
+  postgres-init:
+    volumes:
+      - ./init-postgres.sh:/init-postgres.sh:Z,U
+      - ./.env:/app/.env:Z,U
