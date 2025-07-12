@@ -20,6 +20,42 @@ else
     NC=''
 fi
 
+# Function to build compose file list based on .env flags
+build_compose_files() {
+    local runtime="$1"
+    
+    local compose_files="-f docker-compose.yml"
+    
+    # Get architecture info from existing function
+    local arch_info=$(detect_deployment_architecture)
+    local current_arch=$(echo "$arch_info" | cut -d',' -f1)
+    local traefik_enabled=$(echo "$arch_info" | cut -d',' -f2)
+    local cloudflare_enabled=$(echo "$arch_info" | cut -d',' -f3)
+    local rclone_enabled=$(echo "$arch_info" | cut -d',' -f4)
+    
+    # Add rclone override if enabled
+    if [ "$rclone_enabled" = "true" ]; then
+        compose_files="$compose_files -f docker-compose.rclone.yml"
+        echo "${BLUE}ℹ️  Including rclone cloud storage support${NC}"
+    fi
+    
+    # Add architecture-specific override
+    if [ "$cloudflare_enabled" = "true" ]; then
+        compose_files="$compose_files -f docker-compose.cloudflare.yml"
+        echo "${BLUE}ℹ️  Using Cloudflare tunnels (Traefik disabled for security)${NC}"
+    elif [ "$traefik_enabled" = "true" ]; then
+        echo "${YELLOW}⚠️  Using Traefik reverse proxy (consider Cloudflare tunnels for better security)${NC}"
+    fi
+    
+    # Add Podman override for rootless compatibility
+    if [ "$runtime" = "podman" ]; then
+        compose_files="$compose_files -f docker-compose.podman.yml"
+        echo "${BLUE}ℹ️  Including Podman rootless compatibility overrides${NC}"
+    fi
+    
+    echo "$compose_files"
+}
+
 echo "${CYAN}🚀 n8n-autoscaling Setup Wizard${NC}"
 echo "================================"
 echo ""
@@ -335,17 +371,7 @@ migrate_to_cloudflare() {
     echo "${BLUE}4. Starting with Cloudflare tunnel architecture...${NC}"
     
     # Build compose file list
-    local compose_files="-f docker-compose.yml"
-    
-    # Check for rclone
-    local rclone_data=$(grep "^RCLONE_DATA_MOUNT=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
-    if [ -n "$rclone_data" ]; then
-        compose_files="$compose_files -f docker-compose.rclone.yml"
-        echo "${BLUE}ℹ️  Including rclone cloud storage support${NC}"
-    fi
-    
-    # Add Cloudflare override
-    compose_files="$compose_files -f docker-compose.cloudflare.yml"
+    local compose_files=$(build_compose_files "$runtime")
     
     echo "${BLUE}ℹ️  Starting with: $compose_files${NC}"
     if [ "$runtime" = "docker" ]; then
@@ -432,17 +458,8 @@ migrate_to_traefik() {
     # Start with new architecture
     echo "${BLUE}4. Starting with Traefik reverse proxy architecture...${NC}"
     
-    # Build compose file list (exclude cloudflare override)
-    local compose_files="-f docker-compose.yml"
-    
-    # Check for rclone
-    local rclone_data=$(grep "^RCLONE_DATA_MOUNT=" .env 2>/dev/null | cut -d'=' -f2 || echo "")
-    if [ -n "$rclone_data" ]; then
-        compose_files="$compose_files -f docker-compose.rclone.yml"
-        echo "${BLUE}ℹ️  Including rclone cloud storage support${NC}"
-    fi
-    
-    # Note: We explicitly do NOT add docker-compose.cloudflare.yml
+    # Build compose file list 
+    local compose_files=$(build_compose_files "$runtime")
     
     echo "${BLUE}ℹ️  Starting with: $compose_files${NC}"
     if [ "$runtime" = "docker" ]; then
@@ -1783,13 +1800,12 @@ case "$db_response" in
     [Yy]|[Yy][Ee][Ss])
         echo "${YELLOW}🔄 Starting database services...${NC}"
         
-        # Build compose file list for database startup
+        # Build compose file list for database startup (just basic + podman override)
         COMPOSE_FILES="-f docker-compose.yml"
-        if [ "$RCLONE_ENABLED" = "true" ]; then
-            COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.rclone.yml"
-        fi
-        if [ -n "$CLOUDFLARE_TOKEN" ] && [ "$CLOUDFLARE_TOKEN" != "your_tunnel_token_here" ]; then
-            COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.cloudflare.yml"
+        # Add Podman override for rootless compatibility
+        if [ "$CONTAINER_RUNTIME" = "podman" ]; then
+            COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.podman.yml"
+            echo "${BLUE}ℹ️  Including Podman rootless compatibility overrides${NC}"
         fi
         
         # Stop any existing containers to avoid port conflicts
@@ -1873,21 +1889,7 @@ case "$test_response" in
         echo "${YELLOW}🔄 Starting all services...${NC}"
         
         # Build compose file list based on enabled features
-        COMPOSE_FILES="-f docker-compose.yml"
-        
-        # Add rclone override if enabled
-        if [ "$RCLONE_ENABLED" = "true" ]; then
-            COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.rclone.yml"
-            echo "${BLUE}ℹ️  Including rclone cloud storage support${NC}"
-        fi
-        
-        # Add Cloudflare override if tunnel token is configured
-        if [ -n "$CLOUDFLARE_TOKEN" ] && [ "$CLOUDFLARE_TOKEN" != "your_tunnel_token_here" ]; then
-            COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.cloudflare.yml"
-            echo "${BLUE}ℹ️  Using Cloudflare tunnels (Traefik disabled for security)${NC}"
-        else
-            echo "${YELLOW}⚠️  Using Traefik reverse proxy (consider Cloudflare tunnels for better security)${NC}"
-        fi
+        COMPOSE_FILES=$(build_compose_files "$CONTAINER_RUNTIME")
         
         # Start all services
         echo "${BLUE}ℹ️  Starting with: $COMPOSE_FILES${NC}"

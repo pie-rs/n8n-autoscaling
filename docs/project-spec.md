@@ -49,3 +49,19 @@
 - **Clear error messages**: Specific validation error messages for each input type
 - **Extra instructions**: Support for additional help text (like Cloudflare setup guides)
 - **Smart defaults**: Uses existing .env values without hardcoded fallbacks
+
+#### ensure the system work properly on rootless and rootful
+ - podman
+ - docker
+ - check the systemd scripts
+
+#### review all scripts to confirm 
+  - working correctly
+  - no duplication of code
+  - backups and restores work properly
+
+#### confirm n8n scaling is working properly
+  - test hooks
+  - create dummy load
+  - test scaling
+  - test cool down

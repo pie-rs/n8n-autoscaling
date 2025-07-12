@@ -51,6 +51,8 @@ This is a Docker-based autoscaling solution for n8n workflow automation platform
 ```
 
 ### Development Commands
+
+**For Docker:**
 ```bash
 # View logs for specific service
 docker compose logs -f [service-name]  # e.g., autoscaler, n8n-worker, redis-monitor
@@ -59,7 +61,7 @@ docker compose logs -f [service-name]  # e.g., autoscaler, n8n-worker, redis-mon
 docker compose logs -f n8n-autoscaler
 
 # Monitor Redis queue length
-docker compose exec redis redis-cli LLEN bull:jobs:wait
+docker compose exec redis redis-cli -a "${REDIS_PASSWORD}" LLEN bull:jobs:wait
 
 # Scale workers manually (for testing)
 docker compose up -d --scale n8n-worker=3
@@ -69,6 +71,28 @@ docker compose restart [service-name]
 
 # Stop all services
 docker compose down
+```
+
+**For Rootless Podman:**
+```bash
+# Podman uses podman-compose and automatically includes rootless compatibility overrides
+# View logs for specific service
+podman-compose logs -f [service-name]  # e.g., autoscaler, n8n-worker, redis-monitor
+
+# Check autoscaler status
+podman-compose logs -f n8n-autoscaler
+
+# Monitor Redis queue length
+podman-compose exec redis redis-cli -a "${REDIS_PASSWORD}" LLEN bull:jobs:wait
+
+# Scale workers manually (for testing)
+podman-compose up -d --scale n8n-worker=3
+
+# Restart specific service
+podman-compose restart [service-name]
+
+# Stop all services (with rootless overrides)
+podman-compose -f docker-compose.yml -f docker-compose.podman.yml down
 ```
 
 ### Systemd Service Management
@@ -138,6 +162,42 @@ Critical environment variables in `.env`:
 - Internal network: `n8n-network` (for service communication)
 - External network: `n8n-external` (optional - for integration with other containers)
 - Traefik endpoints: `:8082` (UI), `:8083` (webhooks)
+
+### Podman Rootless Integration
+The system includes full support for rootless Podman with automatic compatibility handling:
+
+**Automatic Detection & Integration:**
+- Setup script detects Podman vs Docker automatically
+- `docker-compose.podman.yml` override file provides rootless compatibility
+- Uses `:Z,U` mount options for proper SELinux labeling and ownership
+- All compose operations automatically include Podman overrides when needed
+
+**Key Benefits:**
+- **Enhanced Security**: Containers run in user namespace, no root access required
+- **SELinux Compatibility**: Automatic volume relabeling with `:Z` option
+- **Ownership Handling**: Automatic chown with `:U` option for proper file permissions
+- **Transparent Integration**: No manual compose file management needed
+
+**Override File (`docker-compose.podman.yml`):**
+```yaml
+# Podman-specific volume mount options for rootless compatibility
+services:
+  postgres:
+    volumes:
+      - postgres_data:/var/lib/postgresql/data:Z,U
+  redis:
+    volumes:
+      - redis_data:/data:Z,U
+  n8n:
+    volumes:
+      - n8n_main:/n8n:Z,U
+  # ... (other services with Z,U mount options)
+```
+
+**Setup Script Integration:**
+- `build_compose_files()` function automatically includes `docker-compose.podman.yml` when Podman is detected
+- Works with all architectures (Cloudflare tunnels, Traefik, rclone)
+- Database initialization and full service startup both include Podman compatibility
 
 ## Important Notes
 

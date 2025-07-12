@@ -1,0 +1,27 @@
+version: '3.8'
+
+# Podman-specific volume mount options for rootless compatibility
+services:
+  postgres:
+    volumes:
+      - postgres_data:/var/lib/postgresql/data:Z,U
+  
+  redis:
+    volumes:
+      - redis_data:/data:Z,U
+  
+  n8n:
+    volumes:
+      - n8n_main:/n8n:Z,U
+  
+  n8n-webhook:
+    volumes:
+      - n8n_webhook:/n8n:Z,U
+  
+  n8n-worker:
+    volumes:
+      - n8n_main:/n8n:Z,U
+  
+  traefik:
+    volumes:
+      - traefik_data:/data:Z,U
